@@ -4,19 +4,70 @@
     <!-- head definitions go here -->
     <script src="./dist/cosmosb.min.js"></script>
     <script src="./plotly-2.12.1.min.js"></script>
+
+    <script type="text/javascript" src="jquery.min.js"></script>
+    <script type="text/javascript" src="moment.min.js"></script>
+    <script type="text/javascript" src="daterangepicker.min.js"></script>
+    <link rel="stylesheet" type="text/css" href="daterangepicker.css" />
+
 </head>
 <body>
     <div id="myPlot" style="width:90%;height:400px;"></div>
 
+    <div id="reportrange" style="background: #fff; cursor: pointer; padding: 5px 10px; border: 1px solid #ccc; width: 50%">
+        <i class="fa fa-calendar"></i>&nbsp;
+        <span></span> <i class="fa fa-caret-down"></i>
+    </div>
+
     <script type="text/javascript">
+
+        var xValues = [];
+
+        var yIValues = [];
+        var yUValues = [];
+        var yPValues = [];
+
+        var start = moment();
+        var end = moment();
+
+        function cb(start, end) {
+            $('#reportrange span').html(start.format('YYYY-MM-DD') + ' - ' + end.format('YYYY-MM-DD'));
+            var layout_update = {
+                xaxis: {
+                    range: [start.format('YYYY-MM-DD') + ' 00:00:00', end.format('YYYY-MM-DD') + ' 23:59:59']
+                }
+            };
+            Plotly.relayout("myPlot", layout_update);
+        }
+
+        $('#reportrange').daterangepicker({
+            startDate: start,
+            endDate: end,
+            ranges: {
+                'Today': [moment(), moment()],
+                'Yesterday': [moment().subtract(1, 'days'), moment().subtract(1, 'days')],
+                'Last 7 Days': [moment().subtract(6, 'days'), moment()],
+                'Last 30 Days': [moment().subtract(29, 'days'), moment()],
+                'This Month': [moment().startOf('month'), moment().endOf('month')],
+                'Last Month': [moment().subtract(1, 'month').startOf('month'), moment().subtract(1, 'month').endOf('month')]
+            }
+        }, cb);
+
         async function main() {
-            var xValues = [];
 
-            var yIValues = [];
-            var yUValues = [];
-            var yPValues = [];
+            var last_date = 0;
 
-            let items = await queryDB("SELECT * from c");
+            /*var myDate_S = start.format('YYYY-MM-DD');
+            var myDate_E = end.format('YYYY-MM-DD');
+            myDate_S = myDate_S.split("-");
+            myDate_E = myDate_E.split("-");
+            var start_ts = new Date(myDate_S[0], myDate_S[1] - 1, myDate_S[2], 0, 0, 0, 0);
+            var end_ts = new Date(myDate_E[0], myDate_E[1] - 1, myDate_E[2], 23, 59, 59, 0);
+            
+            console.log("SELECT * from c");// WHERE c._ts BETWEEN " + start_ts.getTime() / 1000 + " AND " + end_ts.getTime() / 1000);
+            */
+            //query for data from the database 
+            let items = await queryDB("SELECT * from c");// WHERE c._ts BETWEEN " + start_ts.getTime() / 1000 + " AND " + end_ts.getTime() / 1000);
             items.forEach(item => {
                 console.log(`${item._ts} - I: ${item.I}, U: ${item.U}`);
 
@@ -29,9 +80,8 @@
                 yUValues.push(item.U);
                 yPValues.push(item.I * item.U);
 
+                last_date = item._ts;
             });
-
-            
 
 
             // Define Data
@@ -40,7 +90,8 @@
                     x: xValues, y: yIValues, type: "scatter", name: "Current [A]",
                     marker: {
                         color: 'green'
-                    }},
+                    }
+                },
                 {
                     x: xValues, y: yUValues, type: "scatter", name: "Voltage [V]",
                     marker: {
@@ -59,20 +110,59 @@
             var layout = {
                 title: "Measurements",
                 yaxis: {
-                    fixedrange: true
+                    fixedrange: true,
+                    title: 'Current [A], Voltage [U]',
                 },
                 yaxis2: {
                     title: 'Power [W]',
-                    titlefont: { color: 're' },
+                    titlefont: { color: 'red' },
                     tickfont: { color: 'red' },
                     overlaying: 'y',
                     side: 'right',
                     fixedrange: true
+                },
+                xaxis: {
+                    range: [moment().format('YYYY-MM-DD') + ' 00:00:00', moment().format('YYYY-MM-DD') + ' 23:59:59']
+                },
+                legend: {
+
+                    x: 1.1,
+
+                    y: 1.0
+
                 }
             };
 
             // Display using Plotly
             Plotly.newPlot("myPlot", data, layout);
+
+            //set date in calendar
+            cb(start, end);
+
+            //check for updates
+            window.setInterval(async function () {
+                console.log("SELECT * from c WHERE c._ts > " + last_date);
+                let nitems = await queryDB("SELECT * from c WHERE c._ts > " + last_date);
+                if (items.length > 0) {
+
+                    nitems.forEach(item => {
+                        console.log(`${item._ts} - I: ${item.I}, U: ${item.U}`);
+
+                        var date = new Date(item._ts * 1000).toLocaleDateString("en-CA");
+                        var time = new Date(item._ts * 1000).toLocaleTimeString("pl-PL");
+
+                        xValues.push(date + " " + time);
+
+                        yIValues.push(item.I);
+                        yUValues.push(item.U);
+                        yPValues.push(item.I * item.U);
+
+                        last_date = item._ts;
+                    });
+
+                    Plotly.redraw("myPlot");
+                }
+            }, 10000);
         }
 
         main().catch((error) => {
