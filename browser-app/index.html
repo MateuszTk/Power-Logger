@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <!-- head definitions go here -->
+    <script src="./dist/cosmosb.min.js"></script>
+    <script src="./plotly-2.12.1.min.js"></script>
+</head>
+<body>
+    <div id="myPlot" style="width:90%;height:400px;"></div>
+
+    <script type="text/javascript">
+        async function main() {
+            /*let items = await queryDB("SELECT * from c");
+            items.forEach(item => {
+                console.log(`${item.id} - I: ${item.I}, U: ${item.U}`);
+            });*/
+
+            var exp1 = "x";
+            var exp2 = "1.5*x";
+            var exp3 = "1.5*x + 7";
+
+            // Generate values
+
+            var x1Values = [];//[50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150];
+            var x2Values = [];
+            var x3Values = [];
+            var y1Values = [];//[7, 8, 8, 9, 9, 9, 10, 11, 14, 14, 15];
+            var y2Values = [];
+            var y3Values = [];
+
+            for (var x = 0; x <= 10; x += 1) {
+                x1Values.push(x);
+                x2Values.push(x);
+                x3Values.push(x);
+                y1Values.push(eval(exp1));
+                y2Values.push(eval(exp2));
+                y3Values.push(eval(exp3));
+            }
+
+            // Define Data
+            var data = [
+                { x: x1Values, y: y1Values, mode: "lines" },
+                { x: x2Values, y: y2Values, mode: "lines" },
+                { x: x3Values, y: y3Values, mode: "lines" }
+            ];
+
+            // Define Layout
+            var layout = { title: "[y=" + exp1 + "] [y=" + exp2 + "] [y=" + exp3 + "]" };
+
+            // Display using Plotly
+            Plotly.newPlot("myPlot", data, layout);
+        }
+
+        main().catch((error) => {
+            console.error(error);
+        });
+
+    </script>
+
+</body>
+</html>
