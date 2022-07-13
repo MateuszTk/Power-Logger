@@ -1,8 +1,8 @@
 #include <Arduino.h>
 
 #include <WiFi.h>
-#include <WiFiMulti.h>
-
+//#include <WiFiMulti.h>
+#include "time.h"
 #include <HTTPClient.h>
 
 #define USE_SERIAL Serial
@@ -24,7 +24,7 @@
 #define SCREEN_ADDRESS 0x3C
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
-WiFiMulti wifiMulti;
+//WiFiMulti wifiMulti;
 
 const int chipSelect = 12;
 
@@ -44,6 +44,16 @@ struct Config {
   int uhr; //u - voltage; hp - high point; r - raw read
   int uhv; //u - voltage; hp - high point; v - corresponing value
 };
+
+const long  gmtOffset_sec = 3600;
+const int   daylightOffset_sec = 3600;
+char timeStringBuff[30];
+
+char sendBuf[1000];
+char connectionLink[150] = "http://192.168.0.38:7071/api/Log?d=";
+
+
+unsigned long epochTime = 0;
 
 Config config;
 
@@ -85,6 +95,21 @@ void loadConfiguration() {
   file.close();
 }
 
+unsigned long getTimeString(char* timeStringBuff)
+{
+  time_t rawtime;
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo))
+  {
+    Serial.println("Failed to obtain time");
+    return 0;
+  }
+
+  strftime(timeStringBuff, 50, "%Y-%m-%d %H:%M:%S", &timeinfo);
+  time(&rawtime);
+  return rawtime;
+}
+
 void setup() {
   pinMode (A1, INPUT);
   pinMode (A2, INPUT);
@@ -112,7 +137,23 @@ void setup() {
   Serial.println(config.ssid);
   Serial.print("Password: ");
   Serial.println(config.password);
-  wifiMulti.addAP(config.ssid, config.password);
+
+  WiFi.begin(config.ssid, config.password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  printMessage("CONNECTED    ");
+  //wifiMulti.addAP(config.ssid, config.password);
+
+  //init and get the time
+  while(epochTime == 0){
+    configTime(gmtOffset_sec, daylightOffset_sec, "pool.ntp.org");
+    epochTime = getTimeString(timeStringBuff);
+    printMessage(timeStringBuff);
+    if(epochTime == 0)
+      delay(1000);
+  }
 }
 
 int sample_counter = 0;
@@ -127,10 +168,21 @@ int u_accumulator = 0;
 //5 second delay
 int max_samples = 5 * 10;
 
-int offset = 924;
+unsigned long write_pos;
+
+bool wifi = true;
 
 void loop() {
   delay(100);
+
+  while (Serial.available() > 0) {
+    int red = Serial.parseInt();
+    wifi = (red >= 1);
+
+    if (Serial.read() == '\n') {
+      Serial.println("WiFi: " + String(wifi));
+    }
+  }
 
   if (sample_counter < max_samples) {
     sample_counter++;
@@ -138,83 +190,220 @@ void loop() {
     u_accumulator += analogRead(A1);
   }
   else {
-    // wait for WiFi connection
-    if ((wifiMulti.run() == WL_CONNECTED)) {
-      int tmp = i_accumulator / max_samples;
+    int tmp = i_accumulator / max_samples;
 
-      float f_current = float(map(i_accumulator / max_samples * 10, config.ilr, config.ihr, config.ilv, config.ihv)) / 10.0f;//map(i_accumulator / max_samples * 10, 9240, 10000, 0, 50)
-      int current = abs(round(f_current));
+    float f_current = float(map(i_accumulator / max_samples * 10, config.ilr, config.ihr, config.ilv, config.ihv)) / 10.0f;
+    int current = abs(round(f_current));
 
-      float f_voltage = float(map(u_accumulator / max_samples * 10, config.ulr, config.uhr, config.ulv, config.uhv)) / 10.0f;//map(u_accumulator / max_samples * 10, 320, 7930, 20, 640)
-      int voltage = round(f_voltage);
+    float f_voltage = float(map(u_accumulator / max_samples * 10, config.ulr, config.uhr, config.ulv, config.uhv)) / 10.0f;
+    int voltage = round(f_voltage);
 
-      sample_counter = 0;
-      i_accumulator = 0;
-      u_accumulator = 0;
+    sample_counter = 0;
+    i_accumulator = 0;
+    u_accumulator = 0;
 
-      display.clearDisplay();
-      display.setCursor(0, 0);
+    epochTime = getTimeString(timeStringBuff);
 
-      display.print("I: ");
-      display.println(f_current);
-      display.print("U: ");
-      display.println(f_voltage);
-      display.print("P: ");
-      display.println(current * voltage);
-      //display.println(tmp);
-      display.display();
+    display.clearDisplay();
+    display.setCursor(0, 0);
 
-      Serial.print("I: ");
-      Serial.print(current);
-      Serial.print(" U: ");
-      Serial.print(f_voltage);
-      Serial.print(" P: ");
-      Serial.println(current * voltage);
+    display.print("I: ");
+    display.println(f_current);
+    display.print("U: ");
+    display.println(f_voltage);
+    display.print("P: ");
+    display.println(current * voltage);
+    //display.println(tmp);
+    display.display();
 
-      Log(SD, String(current) + ";" + String(voltage) + ";" + String(current * voltage) + "\n");
-      HTTPClient http;
+    Serial.print(timeStringBuff);
+    Serial.print("I: ");
+    Serial.print(current);
+    Serial.print(" U: ");
+    Serial.print(f_voltage);
+    Serial.print(" P: ");
+    Serial.println(current * voltage);
 
-        USE_SERIAL.print("[HTTP] begin...\n");
-        http.begin("http://power-function.azurewebsites.net/api/Log?code=KAPPSK_xg1Vyv-kH0BBj1UQ2LU5CCImc0U9YH5lfyY3NAzFugcQEFg==&i=" + String(random(0, 50)) + "&u=" + String(random(0, 150))); //HTTP
+    Log(SD, String(epochTime) + ";" + String(current) + ";" + String(voltage) + "\n", write_pos);
 
-        USE_SERIAL.print("[HTTP] GET...\n");
-        // start connection and send HTTP header
-        int httpCode = http.GET();
+    //if there are any pending records, send them first
+    if (!SD.exists("/pending.txt")) {
+      // wait for WiFi connection
+      if (WiFi.status() == WL_CONNECTED && wifi) { //if ((wifiMulti.run() == WL_CONNECTED)) {
 
-        // httpCode will be negative on error
-        if (httpCode > 0) {
-        // HTTP header has been send and Server response header has been handled
-        USE_SERIAL.printf("[HTTP] GET... code: %d\n", httpCode);
 
-        // file found at server
-        if (httpCode == HTTP_CODE_OK) {
-          String payload = http.getString();
-          USE_SERIAL.println(payload);
-        }
-        } else {
-        USE_SERIAL.printf("[HTTP] GET... failed, error: %s\n", http.errorToString(httpCode).c_str());
-        delay(5000);
-        }
+        Serial.println("Normal logging");
+        memset(sendBuf, 0, 1000);
+        CstrAddStr(connectionLink);
+        CstrAddStr("t");
+        CstrAddInt(epochTime);
+        CstrAddStr("i");
+        CstrAddInt(current);
+        CstrAddStr("u");
+        CstrAddInt(voltage);
+        
+        SendData(sendBuf);
 
-        http.end();
+      }
+      else {
+        SavePos(write_pos);
+
+        printMessage("No WiFi");
+      }
 
     }
+    //send packet of pending records if possible
+    else if (WiFi.status() == WL_CONNECTED && wifi) {
+      Serial.println("Read packet");
+      ReadPacket(write_pos);
+    }
     else {
-      delay(1000);
       printMessage("No WiFi");
     }
   }
 }
 
-void Log(fs::FS &fs, String dataString) {
+String buffer;
+
+void CstrAddStr(const char* str){
+  strcat(sendBuf, str);
+}
+
+void CstrAddInt(int i){
+  sprintf(sendBuf + strlen(sendBuf), "%d", i);
+}
+
+void SendData(const char* str) {
+  HTTPClient http;
+
+  Serial.print("[HTTP] begin...\n");
+  Serial.println(str);
+  Serial.print("Size: ");
+  Serial.println(strlen(str));
+  //http.begin("http://power-function.azurewebsites.net/api/Log?code=KAPPSK_xg1Vyv-kH0BBj1UQ2LU5CCImc0U9YH5lfyY3NAzFugcQEFg==&i=" + String(random(0, 50)) + "&u=" + String(random(0, 150))); //HTTP
+  //http.begin("http://192.168.0.38:7071/api/Log?d=t" + String(epochTime) + "i" + String(current) + "u" + String(voltage)); //HTTP
+  http.begin(str);
+
+  Serial.print("[HTTP] GET...\n");
+  // start connection and send HTTP header
+  int httpCode = http.GET();
+
+  // httpCode will be negative on error
+  if (httpCode > 0) {
+    // HTTP header has been send and Server response header has been handled
+    Serial.printf("[HTTP] GET... code: %d\n", httpCode);
+
+    // file found at server
+    if (httpCode == HTTP_CODE_OK) {
+      String payload = http.getString();
+      Serial.println(payload);
+    }
+  } else {
+    Serial.printf("[HTTP] GET... failed, error: %s\n", http.errorToString(httpCode).c_str());
+    delay(5000);
+  }
+
+  http.end();
+}
+
+void ReadPacket(unsigned long& pos) {
+  File pendFile = SD.open("/pending.txt", FILE_READ);
+  if (pendFile) {
+    pos = pendFile.readStringUntil('\n').toInt();
+    pendFile.close();
+
+    File dataFile = SD.open("/datalog.csv", FILE_READ);
+    dataFile.seek(pos);
+
+
+    // if the file is available, write to it:
+    if (dataFile) {
+      Serial.println("Sending: ");
+      bool removed = false;
+      memset(sendBuf, 0, 1000);
+      CstrAddStr(connectionLink);
+      unsigned int buflen = 0;
+      unsigned int len = strlen(sendBuf);
+      
+      for (int i = 0; i < 50 && len < 900; i++) {
+        if (pos >= dataFile.size()) {
+          SendData(sendBuf);
+          SD.remove("/pending.txt");
+          Serial.println("removing 'pending.txt' file");
+          removed = true;
+          return;
+        }
+
+        buffer = dataFile.readStringUntil(';');        
+        Serial.print(buffer);        
+        CstrAddStr("t");
+        len++;
+        buflen = buffer.length();
+        buffer.toCharArray(sendBuf + len, buflen + 1);
+        len += buflen;
+
+        buffer = dataFile.readStringUntil(';');        
+        Serial.print(buffer);        
+        CstrAddStr("i");
+        len++;
+        buflen = buffer.length();
+        buffer.toCharArray(sendBuf + len, buflen + 1);
+        len += buflen;
+
+        buffer = dataFile.readStringUntil('\n');        
+        Serial.println(buffer);        
+        CstrAddStr("u");
+        len++;
+        buflen = buffer.length();
+        buffer.toCharArray(sendBuf + len, buflen + 1);
+        len += buflen;
+        
+        pos = dataFile.position();
+      }
+      dataFile.close();
+      SendData(sendBuf);
+      Serial.println("End on packet");
+      if (!removed)
+        SavePos(pos);
+    }
+    // if the file isn't open, pop up an error:
+    else {
+      printMessage("psLog error!");
+    }
+  }
+  else {
+    printMessage("pLog error!");
+  }
+}
+
+void SavePos(unsigned long pos) {
+  File dataFile = SD.open("/pending.txt", FILE_WRITE);
+
+  Serial.print("SavePos ");
+
+  // if the file is available, write to it:
+  if (dataFile) {
+    dataFile.println(pos);
+    dataFile.close();
+    // print to the serial port too:
+    Serial.println(pos);
+  }
+  // if the file isn't open, pop up an error:
+  else {
+    printMessage("Log error!");
+  }
+}
+
+void Log(fs::FS &fs, String dataString, unsigned long& write_pos) {
   File dataFile = fs.open("/datalog.csv", FILE_APPEND);
+  write_pos = dataFile.position();
 
   // if the file is available, write to it:
   if (dataFile) {
     dataFile.print(dataString);
     dataFile.close();
     // print to the serial port too:
-    Serial.println(dataString);
+    Serial.print(dataString);
   }
   // if the file isn't open, pop up an error:
   else {
