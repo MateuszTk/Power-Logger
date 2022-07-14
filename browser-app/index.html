@@ -69,10 +69,10 @@
             //query for data from the database 
             let items = await queryDB("SELECT * from c");// WHERE c._ts BETWEEN " + start_ts.getTime() / 1000 + " AND " + end_ts.getTime() / 1000);
             items.forEach(item => {
-                console.log(`${item._ts} - I: ${item.I}, U: ${item.U}`);
+                console.log(`${item.id} - I: ${item.I}, U: ${item.U}`);
 
-                var date = new Date(item._ts * 1000).toLocaleDateString("en-CA");
-                var time = new Date(item._ts * 1000).toLocaleTimeString("pl-PL");
+                var date = new Date(item.id * 1000).toLocaleDateString("en-CA");
+                var time = new Date(item.id * 1000).toLocaleTimeString("pl-PL");
 
                 xValues.push(date + " " + time);
 
@@ -146,10 +146,10 @@
                 if (items.length > 0) {
 
                     nitems.forEach(item => {
-                        console.log(`${item._ts} - I: ${item.I}, U: ${item.U}`);
+                        console.log(`${item.id} - I: ${item.I}, U: ${item.U}`);
 
-                        var date = new Date(item._ts * 1000).toLocaleDateString("en-CA");
-                        var time = new Date(item._ts * 1000).toLocaleTimeString("pl-PL");
+                        var date = new Date(item.id * 1000).toLocaleDateString("en-CA");
+                        var time = new Date(item.id * 1000).toLocaleTimeString("pl-PL");
 
                         xValues.push(date + " " + time);
 

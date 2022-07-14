@@ -15,10 +15,10 @@ namespace power_function
         [FunctionName("Log")]
         public static async Task<IActionResult> Run(
             [HttpTrigger(AuthorizationLevel.Function, "get", "post", Route = null)] HttpRequest req,
-            //[CosmosDB(
-               // databaseName: "Measurements",
-                //collectionName: "Items",
-                //ConnectionStringSetting = "CosmosDBConnectionString")]IAsyncCollector<dynamic> documentsOut,
+            [CosmosDB(
+                databaseName: "Measurements",
+                collectionName: "Items",
+                ConnectionStringSetting = "CosmosDBConnectionString")]IAsyncCollector<dynamic> documentsOut,
             ILogger log)
         {
             log.LogInformation("C# HTTP trigger function processed a request.");
@@ -72,6 +72,19 @@ namespace power_function
 
                 while (start < data_str.Length - 1) {
 
+                    //fast forward in case of incomplete data (to deal with cases like: "t1234iu88" - value after 'i' missing)
+                    while (start < data_str.Length - 1 && (data_str[start + 1] < '0' || data_str[start + 1] > '9'))
+                    {
+                        if (data_str[start] == 't')
+                        {
+                            current = -1;
+                            voltage = -1;
+                            ts = 0;
+                        }
+                        start++;
+                    }
+                    if (start >= data_str.Length - 1) break;
+
                     //find the end of the number
                     end = Next(start + 1);
                     
@@ -99,13 +112,18 @@ namespace power_function
                     //move to the next value
                     start = end;
 
-                    //fast forward in case of incomplete data (to deal with cases like: "t1234iu88" - value after 'i' missing)
-                    while (start < data_str.Length - 1 && (data_str[start + 1] < '0' || data_str[start + 1] > '9')) start++;
-
                     //if all the variables are read save the measurement
                     if (ts > 0 && current >= 0 && voltage >= 0)
                     {
                         log.LogInformation("ts=" + ts + " I=" + current + " U=" + voltage);
+
+                        await documentsOut.AddAsync(new
+                        {
+                            id = ts.ToString(),
+                            U = voltage,
+                            I = current
+                        });
+
                         current = -1;
                         voltage = -1;
                     }                   
