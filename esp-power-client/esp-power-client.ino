@@ -28,10 +28,13 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 const int chipSelect = 12;
 
+TaskHandle_t Task0;
+
 struct Config {
   //WiFi config
   char ssid[32];
   char password[64];
+  char connectionLink[150];
 
   //calibration
   int ilr; //i - current; lp - low point; r - raw read
@@ -50,10 +53,14 @@ const int   daylightOffset_sec = 3600;
 char timeStringBuff[30];
 
 char sendBuf[1000];
-char connectionLink[150] = "http://192.168.0.38:7071/api/Log?d=";
 
+//char connectionLink[150] = "http://192.168.0.38:7071/api/Log?d=";
+//char connectionLink[150] = "http://power-function.azurewebsites.net/api/Log?code=KAPPSK_xg1Vyv-kH0BBj1UQ2LU5CCImc0U9YH5lfyY3NAzFugcQEFg==&d=";
 
 unsigned long epochTime = 0;
+
+enum UStatus { Empty, Packet, PacketEnd, PacketSuccess, PacketEndSuccess, Failed};
+UStatus uploadStatus = Empty;
 
 Config config;
 
@@ -69,7 +76,7 @@ void loadConfiguration() {
   // Deserialize the JSON document
   DeserializationError error = deserializeJson(doc, file);
   if (error) {
-    Serial.println(F("Failed to read config file, using default configuration"));
+    Serial.println("Failed to read config file, using default configuration");
     printMessage("No config!");
   }
 
@@ -81,6 +88,10 @@ void loadConfiguration() {
   strlcpy(config.password,
           doc["password"] | "",
           sizeof(config.password));
+
+  strlcpy(config.connectionLink,
+          doc["cnURL"] | "",
+          sizeof(config.connectionLink));
 
   config.ilr = (doc["ilr"] | 924) * 10;
   config.ilv = (doc["ilv"] | 0) * 10;
@@ -147,12 +158,48 @@ void setup() {
   //wifiMulti.addAP(config.ssid, config.password);
 
   //init and get the time
-  while(epochTime == 0){
+  while (epochTime == 0) {
     configTime(gmtOffset_sec, daylightOffset_sec, "pool.ntp.org");
     epochTime = getTimeString(timeStringBuff);
     printMessage(timeStringBuff);
-    if(epochTime == 0)
+    if (epochTime == 0)
       delay(1000);
+  }
+
+  xTaskCreatePinnedToCore(
+    Task0Upload,   /* Task function. */
+    "Task1",     /* name of task. */
+    10000,       /* Stack size of task */
+    NULL,        /* parameter of the task */
+    1,           /* priority of the task */
+    &Task0,      /* Task handle to keep track of created task */
+    0);          /* pin task to core 0 */
+  delay(500);
+
+}
+
+bool callUpload = false;
+bool uploadSuccess = false;
+
+void Task0Upload(void * pvParameters) {
+  Serial.print("Task0Upload running on core ");
+  Serial.println(xPortGetCoreID());
+
+  while (true) {
+    if (callUpload) {
+      uploadSuccess = SendData();
+      if (uploadSuccess) {
+        if (uploadStatus == Packet)
+          uploadStatus = PacketSuccess;
+        if (uploadStatus == PacketEnd)
+          uploadStatus = PacketEndSuccess;
+      }
+      else
+        uploadStatus = Failed;
+
+      callUpload = false;
+    }
+    delay(500);
   }
 }
 
@@ -169,6 +216,7 @@ int u_accumulator = 0;
 int max_samples = 5 * 10;
 
 unsigned long write_pos;
+unsigned long pck_upload_pos;
 
 bool wifi = true;
 
@@ -226,23 +274,29 @@ void loop() {
 
     Log(SD, String(epochTime) + ";" + String(current) + ";" + String(voltage) + "\n", write_pos);
 
+    if (uploadStatus == PacketEndSuccess) {
+      SD.remove("/pending.txt");
+      Serial.println("Removing 'pending.txt' file");
+      uploadStatus = Empty;
+    }
+
     //if there are any pending records, send them first
     if (!SD.exists("/pending.txt")) {
       // wait for WiFi connection
-      if (WiFi.status() == WL_CONNECTED && wifi) { //if ((wifiMulti.run() == WL_CONNECTED)) {
+      if (WiFi.status() == WL_CONNECTED && !callUpload && wifi) {
 
 
         Serial.println("Normal logging");
         memset(sendBuf, 0, 1000);
-        CstrAddStr(connectionLink);
+        CstrAddStr(config.connectionLink);
         CstrAddStr("t");
         CstrAddInt(epochTime);
         CstrAddStr("i");
         CstrAddInt(current);
         CstrAddStr("u");
         CstrAddInt(voltage);
-        
-        SendData(sendBuf);
+
+        callUpload = true;
 
       }
       else {
@@ -253,36 +307,59 @@ void loop() {
 
     }
     //send packet of pending records if possible
-    else if (WiFi.status() == WL_CONNECTED && wifi) {
-      Serial.println("Read packet");
-      ReadPacket(write_pos);
-    }
     else {
-      printMessage("No WiFi");
+      if (uploadStatus == PacketEnd)
+        uploadStatus = Packet;
+      else {
+
+        if (uploadStatus == PacketSuccess) {
+          Serial.println("End of packet");
+          SavePos(pck_upload_pos);
+          uploadStatus = Empty;
+        }
+
+        if (WiFi.status() == WL_CONNECTED && !callUpload && uploadStatus == Empty && wifi) {
+          printMessage("Catching up");
+          ReadPacket(write_pos);
+        }
+        else {
+          if (WiFi.status() != WL_CONNECTED)
+            printMessage("No WiFi");
+          else 
+            printMessage("Server error");
+
+        }
+
+        if (uploadStatus == Failed) {
+          printMessage("Packet not sent");
+          uploadStatus = Empty;
+        }
+      }
     }
   }
 }
 
 String buffer;
 
-void CstrAddStr(const char* str){
+void CstrAddStr(const char* str) {
   strcat(sendBuf, str);
 }
 
-void CstrAddInt(int i){
+void CstrAddInt(int i) {
   sprintf(sendBuf + strlen(sendBuf), "%d", i);
 }
 
-void SendData(const char* str) {
+bool SendData() {
+  bool success = false;
+
   HTTPClient http;
 
   Serial.print("[HTTP] begin...\n");
-  Serial.println(str);
+  Serial.println(sendBuf);
   Serial.print("Size: ");
-  Serial.println(strlen(str));
-  //http.begin("http://power-function.azurewebsites.net/api/Log?code=KAPPSK_xg1Vyv-kH0BBj1UQ2LU5CCImc0U9YH5lfyY3NAzFugcQEFg==&i=" + String(random(0, 50)) + "&u=" + String(random(0, 150))); //HTTP
-  //http.begin("http://192.168.0.38:7071/api/Log?d=t" + String(epochTime) + "i" + String(current) + "u" + String(voltage)); //HTTP
-  http.begin(str);
+  Serial.println(strlen(sendBuf));
+
+  http.begin(sendBuf);
 
   Serial.print("[HTTP] GET...\n");
   // start connection and send HTTP header
@@ -297,13 +374,14 @@ void SendData(const char* str) {
     if (httpCode == HTTP_CODE_OK) {
       String payload = http.getString();
       Serial.println(payload);
+      success = true;
     }
   } else {
     Serial.printf("[HTTP] GET... failed, error: %s\n", http.errorToString(httpCode).c_str());
-    delay(5000);
   }
 
   http.end();
+  return success;
 }
 
 void ReadPacket(unsigned long& pos) {
@@ -319,52 +397,48 @@ void ReadPacket(unsigned long& pos) {
     // if the file is available, write to it:
     if (dataFile) {
       Serial.println("Sending: ");
-      bool removed = false;
       memset(sendBuf, 0, 1000);
-      CstrAddStr(connectionLink);
+      CstrAddStr(config.connectionLink);
       unsigned int buflen = 0;
       unsigned int len = strlen(sendBuf);
-      
+
       for (int i = 0; i < 50 && len < 900; i++) {
         if (pos >= dataFile.size()) {
-          SendData(sendBuf);
-          SD.remove("/pending.txt");
-          Serial.println("removing 'pending.txt' file");
-          removed = true;
+          callUpload = true;
+          uploadStatus = PacketEnd;
           return;
         }
 
-        buffer = dataFile.readStringUntil(';');        
-        Serial.print(buffer);        
+        buffer = dataFile.readStringUntil(';');
+        Serial.print(buffer);
         CstrAddStr("t");
         len++;
         buflen = buffer.length();
         buffer.toCharArray(sendBuf + len, buflen + 1);
         len += buflen;
 
-        buffer = dataFile.readStringUntil(';');        
-        Serial.print(buffer);        
+        buffer = dataFile.readStringUntil(';');
+        Serial.print(buffer);
         CstrAddStr("i");
         len++;
         buflen = buffer.length();
         buffer.toCharArray(sendBuf + len, buflen + 1);
         len += buflen;
 
-        buffer = dataFile.readStringUntil('\n');        
-        Serial.println(buffer);        
+        buffer = dataFile.readStringUntil('\n');
+        Serial.println(buffer);
         CstrAddStr("u");
         len++;
         buflen = buffer.length();
         buffer.toCharArray(sendBuf + len, buflen + 1);
         len += buflen;
-        
+
         pos = dataFile.position();
+        pck_upload_pos = pos;
       }
       dataFile.close();
-      SendData(sendBuf);
-      Serial.println("End on packet");
-      if (!removed)
-        SavePos(pos);
+      callUpload = true;
+      uploadStatus = Packet;
     }
     // if the file isn't open, pop up an error:
     else {
@@ -413,8 +487,10 @@ void Log(fs::FS &fs, String dataString, unsigned long& write_pos) {
 
 void printMessage(const char* message) {
   Serial.println(message);
+  display.setTextSize(1);
   display.setCursor(0, 48);
   display.print(message);
   display.print("    ");
   display.display();
+  display.setTextSize(2);
 }

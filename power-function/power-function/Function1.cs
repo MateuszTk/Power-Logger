@@ -15,10 +15,10 @@ namespace power_function
         [FunctionName("Log")]
         public static async Task<IActionResult> Run(
             [HttpTrigger(AuthorizationLevel.Function, "get", "post", Route = null)] HttpRequest req,
-            [CosmosDB(
+            /*[CosmosDB(
                 databaseName: "Measurements",
                 collectionName: "Items",
-                ConnectionStringSetting = "CosmosDBConnectionString")]IAsyncCollector<dynamic> documentsOut,
+                ConnectionStringSetting = "CosmosDBConnectionString")]IAsyncCollector<dynamic> documentsOut,*/
             ILogger log)
         {
             log.LogInformation("C# HTTP trigger function processed a request.");
@@ -117,12 +117,12 @@ namespace power_function
                     {
                         log.LogInformation("ts=" + ts + " I=" + current + " U=" + voltage);
 
-                        await documentsOut.AddAsync(new
+                        /*await documentsOut.AddAsync(new
                         {
                             id = ts.ToString(),
                             U = voltage,
                             I = current
-                        });
+                        });*/
 
                         current = -1;
                         voltage = -1;
