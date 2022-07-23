@@ -15,10 +15,10 @@ namespace power_function
         [FunctionName("Log")]
         public static async Task<IActionResult> Run(
             [HttpTrigger(AuthorizationLevel.Function, "get", "post", Route = null)] HttpRequest req,
-            /*[CosmosDB(
+            [CosmosDB(
                 databaseName: "Measurements",
                 collectionName: "Items",
-                ConnectionStringSetting = "CosmosDBConnectionString")]IAsyncCollector<dynamic> documentsOut,*/
+                ConnectionStringSetting = "CosmosDBConnectionString")]IAsyncCollector<dynamic> documentsOut,
             ILogger log)
         {
             log.LogInformation("C# HTTP trigger function processed a request.");
@@ -31,8 +31,8 @@ namespace power_function
             
             string responseMessage;
 
-            int current = -1;
-            int voltage = -1;
+            float current = -1.0f;
+            float voltage = -1.0f;
             ulong ts = 0;
 
             /*
@@ -65,7 +65,7 @@ namespace power_function
                 //find the end of the number and return the index pointing to the next letter (not digit)
                 Func<int, int> Next = starti => {
                     for (int i = starti; i < data_str.Length; i++)
-                        if (data_str[i] < '0' || data_str[i] > '9')
+                        if ((data_str[i] < '0' || data_str[i] > '9') && data_str[i] != '.')
                             return i;
                     return data_str.Length;
                 };
@@ -77,8 +77,8 @@ namespace power_function
                     {
                         if (data_str[start] == 't')
                         {
-                            current = -1;
-                            voltage = -1;
+                            current = -1.0f;
+                            voltage = -1.0f;
                             ts = 0;
                         }
                         start++;
@@ -93,16 +93,16 @@ namespace power_function
                         //every read begins with timestamp - 't'
                         case 't':
                             ts = UInt64.Parse(data_str.Substring(start + 1, end - start - 1));
-                            current = -1;
-                            voltage = -1;
+                            current = -1.0f;
+                            voltage = -1.0f;
                             break;
 
                         case 'i':
-                            current = Int32.Parse(data_str.Substring(start + 1, end - start - 1));
+                            current = float.Parse(data_str.Substring(start + 1, end - start - 1));
                             break;
 
                         case 'u':
-                            voltage = Int32.Parse(data_str.Substring(start + 1, end - start - 1));
+                            voltage = float.Parse(data_str.Substring(start + 1, end - start - 1));
                             break;
 
                         default:
@@ -113,35 +113,21 @@ namespace power_function
                     start = end;
 
                     //if all the variables are read save the measurement
-                    if (ts > 0 && current >= 0 && voltage >= 0)
+                    if (ts > 0 && current >= 0.0f && voltage >= 0.0f)
                     {
                         log.LogInformation("ts=" + ts + " I=" + current + " U=" + voltage);
 
-                        /*await documentsOut.AddAsync(new
+                        await documentsOut.AddAsync(new
                         {
                             id = ts.ToString(),
                             U = voltage,
                             I = current
-                        });*/
+                        });
 
-                        current = -1;
-                        voltage = -1;
+                        current = -1.0f;
+                        voltage = -1.0f;
                     }                   
                 }
-
-                //current = Int32.Parse(current_str);
-                //voltage = Int32.Parse(voltage_str);
-
-                //log.LogInformation("ts=" + ts + " I=" + current + " U=" + voltage);
-
-                // Send to Cosmos DB
-                // Add a JSON document to the output container.
-                /*await documentsOut.AddAsync(new
-                {
-                    id = DateTime.Now.ToString("yyyyMMddHHmmss"),
-                    U = voltage,
-                    I = current
-                });*/
             }
             else
             {

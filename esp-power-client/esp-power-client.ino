@@ -128,7 +128,7 @@ void setup() {
 
   analogSetWidth(11);
 
-  Serial.begin(115200);
+  //Serial.begin(115200);
 
   display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS);
   display.clearDisplay();
@@ -212,8 +212,8 @@ int i_accumulator = 0;
 int u_accumulator = 0;
 
 //also indicates delay between measurements logging ("* 10" when delay is 100ms; 10 = 1000ms / 100ms)
-//5 second delay
-int max_samples = 5 * 10;
+//15 second delay
+int max_samples = 15 * 10;
 
 unsigned long write_pos;
 unsigned long pck_upload_pos;
@@ -260,19 +260,19 @@ void loop() {
     display.print("U: ");
     display.println(f_voltage);
     display.print("P: ");
-    display.println(current * voltage);
+    display.println(f_current * f_voltage);
     //display.println(tmp);
     display.display();
 
     Serial.print(timeStringBuff);
     Serial.print("I: ");
-    Serial.print(current);
+    Serial.print(f_current);
     Serial.print(" U: ");
     Serial.print(f_voltage);
     Serial.print(" P: ");
-    Serial.println(current * voltage);
+    Serial.println(f_current * f_voltage);
 
-    Log(SD, String(epochTime) + ";" + String(current) + ";" + String(voltage) + "\n", write_pos);
+    Log(SD, String(epochTime) + ";" + String(f_current) + ";" + String(f_voltage) + "\n", write_pos);
 
     if (uploadStatus == PacketEndSuccess) {
       SD.remove("/pending.txt");
@@ -292,9 +292,9 @@ void loop() {
         CstrAddStr("t");
         CstrAddInt(epochTime);
         CstrAddStr("i");
-        CstrAddInt(current);
+        CstrAddFloat(f_current);
         CstrAddStr("u");
-        CstrAddInt(voltage);
+        CstrAddFloat(f_voltage);
 
         callUpload = true;
 
@@ -347,6 +347,10 @@ void CstrAddStr(const char* str) {
 
 void CstrAddInt(int i) {
   sprintf(sendBuf + strlen(sendBuf), "%d", i);
+}
+
+void CstrAddFloat(float f) {
+  sprintf(sendBuf + strlen(sendBuf), "%g", f);
 }
 
 bool SendData() {
