@@ -10,10 +10,43 @@
     <script type="text/javascript" src="daterangepicker.min.js"></script>
     <link rel="stylesheet" type="text/css" href="daterangepicker.css" />
 
+    <style>
+        .js-plotly-plot .plotly .main-svg {
+            top: -40px;
+        }
+
+        html, body {
+            margin: 1%;
+            height: 100%;
+        }
+
+        .js-plotly-plot .plotly .modebar-btn {
+            font-size: 2em;
+        }
+
+        /* Portrait */
+        @media screen and (orientation:portrait) {
+            #myPlot {
+                margin: 0;
+                margin-top: 2%;
+                height: 50%;
+            }
+        }
+
+        /* Landscape */
+        @media screen and (orientation:landscape) {
+            #myPlot {
+                margin: 0;
+                height: 400px;
+            }
+        }
+
+    </style>
+
 </head>
 <body>
-    <div id="myPlot" style="width:100%;height:400px;"></div>
-    <div style="height: 800px; margin-right: 20px;">
+    <div id="myPlot"></div>
+    <div style="height: 800px; margin-right: 20px; margin-top: -40px;">
         <div id="reportrange" style="background: #fff; cursor: pointer; padding: 5px 10px; border: 1px solid #ccc; width: 100%;">
             <i class="fa fa-calendar"></i>&nbsp;
             <span></span> <i class="fa fa-caret-down"></i>
@@ -85,7 +118,7 @@
 
                 last_date = item._ts;
             });
-
+            
 
             // Define Data
             var data = [
@@ -133,6 +166,9 @@
                     "orientation": "h",
                     y: 1.1
 
+                },
+                modebar: {
+
                 }
             };
 
@@ -149,31 +185,31 @@
             cb(start, end);
 
             //check for updates
-            window.setInterval(async function () {
-                console.log("SELECT * from c WHERE c._ts > " + last_date);
-                let nitems = await queryDB("SELECT * from c WHERE c._ts > " + last_date);
-                if (items.length > 0) {
+             window.setInterval(async function () {
+                 console.log("SELECT * from c WHERE c._ts > " + last_date);
+                 let nitems = await queryDB("SELECT * from c WHERE c._ts > " + last_date);
+                 if (items.length > 0) {
 
-                    nitems.forEach(item => {
-                        console.log(`${item.id} - I: ${item.I}, U: ${item.U}`);
+                     nitems.forEach(item => {
+                         console.log(`${item.id} - I: ${item.I}, U: ${item.U}`);
 
-                        var date = new Date(item.id * 1000).toLocaleDateString("en-CA");
-                        var time = new Date(item.id * 1000).toLocaleTimeString("pl-PL");
+                         var date = new Date(item.id * 1000).toLocaleDateString("en-CA");
+                         var time = new Date(item.id * 1000).toLocaleTimeString("pl-PL");
 
-                        if (item._ts - last_date > 100)
-                            xValues.push("NA");
-                        xValues.push(date + " " + time);
+                         if (item._ts - last_date > 100)
+                             xValues.push("NA");
+                         xValues.push(date + " " + time);
 
-                        yIValues.push(item.I);
-                        yUValues.push(item.U);
-                        yPValues.push(item.I * item.U);
+                         yIValues.push(item.I);
+                         yUValues.push(item.U);
+                         yPValues.push(item.I * item.U);
 
-                        last_date = item._ts;
-                    });
+                         last_date = item._ts;
+                     });
 
-                    Plotly.redraw("myPlot");
-                }
-            }, 10000);
+                     Plotly.redraw("myPlot");
+                 }
+             }, 10000);
         }
 
         main().catch((error) => {
