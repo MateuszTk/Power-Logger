@@ -64,6 +64,8 @@ UStatus uploadStatus = Empty;
 
 Config config;
 
+bool offline = false;
+
 // Loads the configuration from a file
 void loadConfiguration() {
   // Open file for reading
@@ -125,6 +127,8 @@ void setup() {
   pinMode (A1, INPUT);
   pinMode (A2, INPUT);
   pinMode (chipSelect, OUTPUT);
+  //button pin
+  pinMode (17, INPUT_PULLUP);
 
   analogSetWidth(11);
 
@@ -144,38 +148,56 @@ void setup() {
     printMessage("SD Card OK");
     loadConfiguration();
   }
-  Serial.print("SSID: ");
-  Serial.println(config.ssid);
-  Serial.print("Password: ");
-  Serial.println(config.password);
 
-  WiFi.begin(config.ssid, config.password);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  printMessage("CONNECTED    ");
-  //wifiMulti.addAP(config.ssid, config.password);
-
-  //init and get the time
-  while (epochTime == 0) {
-    configTime(gmtOffset_sec, daylightOffset_sec, "pool.ntp.org");
+  offline = !digitalRead(17);
+  if (offline) {
+    printMessage("Offline mode active");
+    /*struct tm tm;
+    tm.tm_year = 0;
+    tm.tm_mon = 0;
+    tm.tm_mday = 0;
+    tm.tm_hour = 0;
+    tm.tm_min = 0;
+    tm.tm_sec = 0;*/
+    time_t t = 1800000000UL;//mktime(&tm);
+    struct timeval now = { .tv_sec = t };
+    settimeofday(&now, NULL);
     epochTime = getTimeString(timeStringBuff);
     printMessage(timeStringBuff);
-    if (epochTime == 0)
-      delay(1000);
+    delay(1000);
   }
+  else {
+    Serial.print("SSID: ");
+    Serial.println(config.ssid);
+    Serial.print("Password: ");
+    Serial.println(config.password);
 
-  xTaskCreatePinnedToCore(
-    Task0Upload,   /* Task function. */
-    "Task1",     /* name of task. */
-    10000,       /* Stack size of task */
-    NULL,        /* parameter of the task */
-    1,           /* priority of the task */
-    &Task0,      /* Task handle to keep track of created task */
-    0);          /* pin task to core 0 */
-  delay(500);
+    WiFi.begin(config.ssid, config.password);
+    while (WiFi.status() != WL_CONNECTED) {
+      delay(500);
+      Serial.print(".");
+    }
+    printMessage("CONNECTED    ");
 
+    //init and get the time
+    while (epochTime == 0) {
+      configTime(gmtOffset_sec, daylightOffset_sec, "pool.ntp.org");
+      epochTime = getTimeString(timeStringBuff);
+      printMessage(timeStringBuff);
+      if (epochTime == 0)
+        delay(1000);
+    }
+
+    xTaskCreatePinnedToCore(
+      Task0Upload,   /* Task function. */
+      "Task1",     /* name of task. */
+      10000,       /* Stack size of task */
+      NULL,        /* parameter of the task */
+      1,           /* priority of the task */
+      &Task0,      /* Task handle to keep track of created task */
+      0);          /* pin task to core 0 */
+    delay(500);
+  }
 }
 
 bool callUpload = false;
@@ -220,8 +242,41 @@ unsigned long pck_upload_pos;
 
 bool wifi = true;
 
+int raw_i = 0, raw_u = 0;
+float f_current = 0.0f, f_voltage = 0.0f;
+bool dispMode = false;
+
 void loop() {
   delay(100);
+
+  bool button = !digitalRead(17);
+  if (dispMode || button) {
+    if (!dispMode && button) {
+      dispMode = true;
+      //display.clearDisplay();
+      display.fillRect(0, 0, 128, 32, 0x0);
+      display.setCursor(0, 0);
+      display.print("I: ");
+      display.println(raw_i);
+      display.print("U: ");
+      display.println(raw_u);
+      display.display();
+    }
+    else if (!button && dispMode) {
+      dispMode = false;
+      //display.clearDisplay();
+
+      display.fillRect(0, 0, 128, 32, 0x0);
+      display.setCursor(0, 0);
+      display.print("I: ");
+      display.print(f_current);
+      display.println("A");
+      display.print("U: ");
+      display.print(f_voltage);
+      display.println("V");
+      display.display();
+    }
+  }
 
   while (Serial.available() > 0) {
     int red = Serial.parseInt();
@@ -238,30 +293,41 @@ void loop() {
     u_accumulator += analogRead(A1);
   }
   else {
-    int tmp = i_accumulator / max_samples;
+    raw_i = i_accumulator / max_samples;
+    raw_u = u_accumulator / max_samples;
 
-    float f_current = float(map(i_accumulator / max_samples * 10, config.ilr, config.ihr, config.ilv, config.ihv)) / 10.0f;
-    int current = abs(round(f_current));
+    f_current = float(map(raw_i * 10, config.ilr, config.ihr, config.ilv, config.ihv)) / 10.0f;
+    //int current = abs(round(f_current));
 
-    float f_voltage = float(map(u_accumulator / max_samples * 10, config.ulr, config.uhr, config.ulv, config.uhv)) / 10.0f;
-    int voltage = round(f_voltage);
+    f_voltage = float(map(raw_u * 10, config.ulr, config.uhr, config.ulv, config.uhv)) / 10.0f;
+    // voltage = round(f_voltage);
 
     sample_counter = 0;
     i_accumulator = 0;
     u_accumulator = 0;
 
-    epochTime = getTimeString(timeStringBuff);
+    epochTime = getTimeString(timeStringBuff) - ((offline) ? 1800000000UL : 0UL);
 
     display.clearDisplay();
     display.setCursor(0, 0);
+    if (!dispMode) {
+      display.print("I: ");
+      display.print(f_current);
+      display.println("A");
+      display.print("U: ");
+      display.print(f_voltage);
+      display.println("V");
+    }
+    else {
+      display.print("I: ");
+      display.println(raw_i);
+      display.print("U: ");
+      display.println(raw_u);
+    }
 
-    display.print("I: ");
-    display.println(f_current);
-    display.print("U: ");
-    display.println(f_voltage);
     display.print("P: ");
-    display.println(f_current * f_voltage);
-    //display.println(tmp);
+    display.print(f_current * f_voltage);
+    display.println("W");
     display.display();
 
     Serial.print(timeStringBuff);
@@ -273,66 +339,70 @@ void loop() {
     Serial.println(f_current * f_voltage);
 
     Log(SD, String(epochTime) + ";" + String(f_current) + ";" + String(f_voltage) + "\n", write_pos);
-
-    if (uploadStatus == PacketEndSuccess) {
-      SD.remove("/pending.txt");
-      Serial.println("Removing 'pending.txt' file");
-      uploadStatus = Empty;
+    if (offline) {
+      //printMessage("Offline mode");
     }
-
-    //if there are any pending records, send them first
-    if (!SD.exists("/pending.txt")) {
-      // wait for WiFi connection
-      if (WiFi.status() == WL_CONNECTED && !callUpload && wifi) {
-
-
-        Serial.println("Normal logging");
-        memset(sendBuf, 0, 1000);
-        CstrAddStr(config.connectionLink);
-        CstrAddStr("t");
-        CstrAddInt(epochTime);
-        CstrAddStr("i");
-        CstrAddFloat(f_current);
-        CstrAddStr("u");
-        CstrAddFloat(f_voltage);
-
-        callUpload = true;
-
-      }
-      else {
-        SavePos(write_pos);
-
-        printMessage("No WiFi");
-      }
-
-    }
-    //send packet of pending records if possible
     else {
-      if (uploadStatus == PacketEnd)
-        uploadStatus = Packet;
-      else {
+      if (uploadStatus == PacketEndSuccess) {
+        SD.remove("/pending.txt");
+        Serial.println("Removing 'pending.txt' file");
+        uploadStatus = Empty;
+      }
 
-        if (uploadStatus == PacketSuccess) {
-          Serial.println("End of packet");
-          SavePos(pck_upload_pos);
-          uploadStatus = Empty;
-        }
+      //if there are any pending records, send them first
+      if (!SD.exists("/pending.txt")) {
+        // wait for WiFi connection
+        if (WiFi.status() == WL_CONNECTED && !callUpload && wifi) {
 
-        if (WiFi.status() == WL_CONNECTED && !callUpload && uploadStatus == Empty && wifi) {
-          printMessage("Catching up");
-          ReadPacket(write_pos);
+
+          Serial.println("Normal logging");
+          memset(sendBuf, 0, 1000);
+          CstrAddStr(config.connectionLink);
+          CstrAddStr("t");
+          CstrAddInt(epochTime);
+          CstrAddStr("i");
+          CstrAddFloat(f_current);
+          CstrAddStr("u");
+          CstrAddFloat(f_voltage);
+
+          callUpload = true;
+
         }
         else {
-          if (WiFi.status() != WL_CONNECTED)
-            printMessage("No WiFi");
-          else 
-            printMessage("Server error");
+          SavePos(write_pos);
 
+          printMessage("No WiFi");
         }
 
-        if (uploadStatus == Failed) {
-          printMessage("Packet not sent");
-          uploadStatus = Empty;
+      }
+      //send packet of pending records if possible
+      else {
+        if (uploadStatus == PacketEnd)
+          uploadStatus = Packet;
+        else {
+
+          if (uploadStatus == PacketSuccess) {
+            Serial.println("End of packet");
+            SavePos(pck_upload_pos);
+            uploadStatus = Empty;
+          }
+
+          if (WiFi.status() == WL_CONNECTED && !callUpload && uploadStatus == Empty && wifi) {
+            printMessage("Catching up");
+            ReadPacket(write_pos);
+          }
+          else {
+            if (WiFi.status() != WL_CONNECTED)
+              printMessage("No WiFi");
+            else
+              printMessage("Server error");
+
+          }
+
+          if (uploadStatus == Failed) {
+            printMessage("Packet not sent");
+            uploadStatus = Empty;
+          }
         }
       }
     }
@@ -473,7 +543,7 @@ void SavePos(unsigned long pos) {
 }
 
 void Log(fs::FS &fs, String dataString, unsigned long& write_pos) {
-  File dataFile = fs.open("/datalog.csv", FILE_APPEND);
+  File dataFile = fs.open((offline) ? "/offline.csv" : "/datalog.csv", FILE_APPEND);
   write_pos = dataFile.position();
 
   // if the file is available, write to it:
