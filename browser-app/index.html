@@ -63,9 +63,19 @@
 
         var start = moment();
         var end = moment();
+        var downloading = false;
+        const daysDownloaded = new Map();
+        var dlQueue = [];
+        const dayLen = 86400;
 
         function cb(start, end) {
             $('#reportrange span').html(start.format('YYYY-MM-DD') + ' - ' + end.format('YYYY-MM-DD'));
+            let ts = toDayTimestamp(start);
+            let end_ts = toDayTimestamp(end);
+            while (ts <= end_ts) {
+                dlQueue.push(ts);
+                ts += dayLen;
+            }
             var layout_update = {
                 xaxis: {
                     range: [start.format('YYYY-MM-DD') + ' 00:00:00', end.format('YYYY-MM-DD') + ' 23:59:59']
@@ -87,37 +97,54 @@
             }
         }, cb);
 
+        async function fetchDay(start_ts) {
+            let _last_date = 0;
+            if (!daysDownloaded.has(start_ts)) {
+                daysDownloaded.set(start_ts, 1);
+                console.log("Downloading ts: " + start_ts);
+                downloading = true;
+                //it shouldn't be "WHERE c._ts" but "c.id", because c.id is ts when it was measured not sent, 
+                //but string comparison costs more RUs so... need to add new filed with ts as integer (TODO)
+                //may make a difference in case of device catching up a day later
+                let queryStr = "SELECT c.id, c.U, c.I, c._ts from c WHERE c._ts BETWEEN " + start_ts + " AND " + (start_ts + dayLen);
+                console.log(queryStr);
+                let items = await queryDB(queryStr);
+                items.forEach(item => {
+                    console.log(`${item.id} - I: ${item.I}, U: ${item.U}`);
+
+                    var date = new Date(item.id * 1000).toLocaleDateString("en-CA");
+                    var time = new Date(item.id * 1000).toLocaleTimeString("pl-PL");
+
+                    if (item._ts - _last_date > 100)
+                        xValues.push("NA");
+                    xValues.push(date + " " + time);
+
+                    yIValues.push(item.I);
+                    yUValues.push(item.U);
+                    yPValues.push(item.I * item.U);
+
+                    _last_date = item._ts;
+                });               
+            }
+            else {
+                console.log("Ts: " + start_ts + " skipped");
+            }
+            downloading = false;
+        }
+
+        
+
+        //convert date to timestamp
+        function toDayTimestamp(date){
+            let myDate = date.format('YYYY-MM-DD').split("-");
+            return (new Date(myDate[0], myDate[1] - 1, myDate[2], 0, 0, 0, 0)).getTime() / 1000;
+        }
+
         async function main() {
 
             var last_date = 0;
 
-            /*var myDate_S = start.format('YYYY-MM-DD');
-            var myDate_E = end.format('YYYY-MM-DD');
-            myDate_S = myDate_S.split("-");
-            myDate_E = myDate_E.split("-");
-            var start_ts = new Date(myDate_S[0], myDate_S[1] - 1, myDate_S[2], 0, 0, 0, 0);
-            var end_ts = new Date(myDate_E[0], myDate_E[1] - 1, myDate_E[2], 23, 59, 59, 0);
-
-            console.log("SELECT * from c");// WHERE c._ts BETWEEN " + start_ts.getTime() / 1000 + " AND " + end_ts.getTime() / 1000);
-            */
-            //query for data from the database
-            let items = await queryDB("SELECT * from c");// WHERE c._ts BETWEEN " + start_ts.getTime() / 1000 + " AND " + end_ts.getTime() / 1000);
-            items.forEach(item => {
-                //console.log(`${item.id} - I: ${item.I}, U: ${item.U}`);
-
-                var date = new Date(item.id * 1000).toLocaleDateString("en-CA");
-                var time = new Date(item.id * 1000).toLocaleTimeString("pl-PL");
-
-                if (item._ts - last_date > 100)
-                    xValues.push("NA");
-                xValues.push(date + " " + time);
-
-                yIValues.push(item.I);
-                yUValues.push(item.U);
-                yPValues.push(item.I * item.U);
-
-                last_date = item._ts;
-            });
+            last_date = Math.floor(Date.now() / 1000);
             
 
             // Define Data
@@ -185,31 +212,48 @@
             cb(start, end);
 
             //check for updates
-             window.setInterval(async function () {
-                 console.log("SELECT * from c WHERE c._ts > " + last_date);
-                 let nitems = await queryDB("SELECT * from c WHERE c._ts > " + last_date);
-                 if (items.length > 0) {
+            window.setInterval(async function () {
+                //if not downloading rn
+                if (!downloading) {
+                    downloading = true;
+                    console.log("SELECT c.id, c.U, c.I, c._ts from c WHERE c._ts > " + last_date);
+                    let nitems = await queryDB("SELECT c.id, c.U, c.I, c._ts from c WHERE c._ts > " + last_date);
+                    if (nitems.length > 0) {
 
-                     nitems.forEach(item => {
-                         console.log(`${item.id} - I: ${item.I}, U: ${item.U}`);
+                        nitems.forEach(item => {
+                            console.log(`${item.id} - I: ${item.I}, U: ${item.U}`);
 
-                         var date = new Date(item.id * 1000).toLocaleDateString("en-CA");
-                         var time = new Date(item.id * 1000).toLocaleTimeString("pl-PL");
+                            var date = new Date(item.id * 1000).toLocaleDateString("en-CA");
+                            var time = new Date(item.id * 1000).toLocaleTimeString("pl-PL");
 
-                         if (item._ts - last_date > 100)
-                             xValues.push("NA");
-                         xValues.push(date + " " + time);
+                            if (item._ts - last_date > 100)
+                                xValues.push("NA");
+                            xValues.push(date + " " + time);
 
-                         yIValues.push(item.I);
-                         yUValues.push(item.U);
-                         yPValues.push(item.I * item.U);
+                            yIValues.push(item.I);
+                            yUValues.push(item.U);
+                            yPValues.push(item.I * item.U);
 
-                         last_date = item._ts;
-                     });
+                            last_date = item._ts;
+                        });
 
-                     Plotly.redraw("myPlot");
-                 }
-             }, 10000);
+                        Plotly.redraw("myPlot");
+                    }
+                    downloading = false;
+                }
+            }, 15000);
+
+            //main download loop
+            window.setInterval(async function () {
+                //if not downloading rn and job queue not empty
+                if (!downloading && dlQueue.length > 0) {
+                    downloading = true;
+                    fetchDay(dlQueue.shift()).then(() => {
+                        console.log("Day downloaded");
+                        Plotly.redraw("myPlot");
+                    });
+                }
+            }, 1000);
         }
 
         main().catch((error) => {
