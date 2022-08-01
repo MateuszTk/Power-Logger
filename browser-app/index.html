@@ -41,13 +41,33 @@
             }
         }
 
+        #progress {
+            z-index: 2;
+            position: relative;
+            top: -30px;
+            width: 100%;
+            background-color: grey;
+        }
+
+        #progBar {
+            width: 0%;
+            height: 30px;
+            background-color: #04AA6D;
+            text-align: center;
+            line-height: 30px;
+            color: white;
+        }
+
     </style>
 
 </head>
 <body>
     <div id="myPlot"></div>
     <div style="height: 800px; margin-right: 20px; margin-top: -40px;">
-        <div id="reportrange" style="background: #fff; cursor: pointer; padding: 5px 10px; border: 1px solid #ccc; width: 100%;">
+        <div id="progress">
+            <div id="progBar">0%</div>
+        </div>
+        <div id="reportrange" style="background: #fff; cursor: pointer; padding: 5px 10px; border: 1px solid #ccc; position: relative; top: -25px;">
             <i class="fa fa-calendar"></i>&nbsp;
             <span></span> <i class="fa fa-caret-down"></i>
         </div>
@@ -66,22 +86,36 @@
         var downloading = false;
         const daysDownloaded = new Map();
         var dlQueue = [];
+        var dlLen = 0;
         const dayLen = 86400;
+        var layout_update;
+
+        var progressBar = document.getElementById("progBar");
+
+        function setProgress(value) {
+            value = Math.floor(value * 100);
+            progressBar.style.width = value + "%";
+            progressBar.innerHTML = value + "%";
+        }
 
         function cb(start, end) {
             $('#reportrange span').html(start.format('YYYY-MM-DD') + ' - ' + end.format('YYYY-MM-DD'));
+            dlQueue = [];
             let ts = toDayTimestamp(start);
             let end_ts = toDayTimestamp(end);
+            setProgress(0.0);
+            dlLen = 0;
             while (ts <= end_ts) {
+                dlLen++;
                 dlQueue.push(ts);
                 ts += dayLen;
             }
-            var layout_update = {
+            layout_update = {
                 xaxis: {
                     range: [start.format('YYYY-MM-DD') + ' 00:00:00', end.format('YYYY-MM-DD') + ' 23:59:59']
                 }
             };
-            Plotly.relayout("myPlot", layout_update);
+            //Plotly.relayout("myPlot", layout_update);
         }
 
         $('#reportrange').daterangepicker({
@@ -103,7 +137,7 @@
                 daysDownloaded.set(start_ts, 1);
                 console.log("Downloading ts: " + start_ts);
                 downloading = true;
-                //it shouldn't be "WHERE c._ts" but "c.id", because c.id is ts when it was measured not sent, 
+                //it shouldn't be "WHERE c._ts" but "c.id", because c.id is ts when it was measured not sent,
                 //but string comparison costs more RUs so... need to add new filed with ts as integer (TODO)
                 //may make a difference in case of device catching up a day later
                 let queryStr = "SELECT c.id, c.U, c.I, c._ts from c WHERE c._ts BETWEEN " + start_ts + " AND " + (start_ts + dayLen);
@@ -124,7 +158,7 @@
                     yPValues.push(item.I * item.U);
 
                     _last_date = item._ts;
-                });               
+                });
             }
             else {
                 console.log("Ts: " + start_ts + " skipped");
@@ -132,10 +166,10 @@
             downloading = false;
         }
 
-        
+
 
         //convert date to timestamp
-        function toDayTimestamp(date){
+        function toDayTimestamp(date) {
             let myDate = date.format('YYYY-MM-DD').split("-");
             return (new Date(myDate[0], myDate[1] - 1, myDate[2], 0, 0, 0, 0)).getTime() / 1000;
         }
@@ -145,7 +179,7 @@
             var last_date = 0;
 
             last_date = Math.floor(Date.now() / 1000);
-            
+
 
             // Define Data
             var data = [
@@ -214,7 +248,7 @@
             //check for updates
             window.setInterval(async function () {
                 //if not downloading rn
-                if (!downloading) {
+                if (!downloading && dlQueue.length == 0) {
                     downloading = true;
                     console.log("SELECT c.id, c.U, c.I, c._ts from c WHERE c._ts > " + last_date);
                     let nitems = await queryDB("SELECT c.id, c.U, c.I, c._ts from c WHERE c._ts > " + last_date);
@@ -248,10 +282,23 @@
                 //if not downloading rn and job queue not empty
                 if (!downloading && dlQueue.length > 0) {
                     downloading = true;
-                    fetchDay(dlQueue.shift()).then(() => {
-                        console.log("Day downloaded");
-                        Plotly.redraw("myPlot");
-                    });
+                    let start_ts = 0;
+                    do {
+                        start_ts = dlQueue.shift();
+                    } while (daysDownloaded.has(start_ts));
+                    if (start_ts > 0) {
+                        fetchDay(start_ts).then(() => {
+                            console.log("Day downloaded");
+                            Plotly.redraw("myPlot");
+                            Plotly.relayout("myPlot", layout_update);
+                            setProgress(1.0 - (dlQueue.length / dlLen));
+                        });
+                    }
+                    else {
+                        setProgress(1.0);
+                        downloading = false;
+                        Plotly.relayout("myPlot", layout_update);
+                    }
                 }
             }, 1000);
         }
