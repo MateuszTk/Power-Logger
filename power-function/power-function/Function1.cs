@@ -31,8 +31,9 @@ namespace power_function
             
             string responseMessage;
 
-            float current = -1.0f;
-            float voltage = -1.0f;
+            const float minValue = -100.0f;
+            float current = minValue;
+            float voltage = minValue;
             ulong ts = 0;
 
             /*
@@ -65,7 +66,7 @@ namespace power_function
                 //find the end of the number and return the index pointing to the next letter (not digit)
                 Func<int, int> Next = starti => {
                     for (int i = starti; i < data_str.Length; i++)
-                        if ((data_str[i] < '0' || data_str[i] > '9') && data_str[i] != '.')
+                        if ((data_str[i] < '0' || data_str[i] > '9') && data_str[i] != '.' && data_str[i] != '-')
                             return i;
                     return data_str.Length;
                 };
@@ -73,12 +74,12 @@ namespace power_function
                 while (start < data_str.Length - 1) {
 
                     //fast forward in case of incomplete data (to deal with cases like: "t1234iu88" - value after 'i' missing)
-                    while (start < data_str.Length - 1 && (data_str[start + 1] < '0' || data_str[start + 1] > '9'))
+                    while (start < data_str.Length - 1 && (data_str[start + 1] < '0' || data_str[start + 1] > '9') && data_str[start + 1] != '-')
                     {
                         if (data_str[start] == 't')
                         {
-                            current = -1.0f;
-                            voltage = -1.0f;
+                            current = minValue;
+                            voltage = minValue;
                             ts = 0;
                         }
                         start++;
@@ -93,8 +94,8 @@ namespace power_function
                         //every read begins with timestamp - 't'
                         case 't':
                             ts = UInt64.Parse(data_str.Substring(start + 1, end - start - 1));
-                            current = -1.0f;
-                            voltage = -1.0f;
+                            current = minValue;
+                            voltage = minValue;
                             break;
 
                         case 'i':
@@ -113,7 +114,7 @@ namespace power_function
                     start = end;
 
                     //if all the variables are read save the measurement
-                    if (ts > 0 && current >= 0.0f && voltage >= 0.0f)
+                    if (ts > 0 && current > minValue && voltage > minValue)
                     {
                         log.LogInformation("ts=" + ts + " I=" + current + " U=" + voltage);
 
@@ -124,8 +125,8 @@ namespace power_function
                             I = current
                         });
 
-                        current = -1.0f;
-                        voltage = -1.0f;
+                        current = minValue;
+                        voltage = minValue;
                     }                   
                 }
             }

@@ -71,6 +71,7 @@
             <i class="fa fa-calendar"></i>&nbsp;
             <span></span> <i class="fa fa-caret-down"></i>
         </div>
+        <p id="wattHours">Wh</p>
     </div>
 
     <script type="text/javascript">
@@ -89,21 +90,27 @@
         var dlLen = 0;
         const dayLen = 86400;
         var layout_update;
+        var wattHours = 0.0;
+        var dateRangeText = "";
 
         var progressBar = document.getElementById("progBar");
+        var wattHoursText = document.getElementById("wattHours");
 
         function setProgress(value) {
             value = Math.floor(value * 100);
             progressBar.style.width = value + "%";
             progressBar.innerHTML = value + "%";
+            wattHoursText.innerHTML = "(" + dateRangeText + "): " + Math.round(wattHours) / 1000.0 + "kWh";
         }
 
         function cb(start, end) {
-            $('#reportrange span').html(start.format('YYYY-MM-DD') + ' - ' + end.format('YYYY-MM-DD'));
+            dateRangeText = start.format('YYYY-MM-DD') + ' - ' + end.format('YYYY-MM-DD');
+            $('#reportrange span').html(dateRangeText);
             dlQueue = [];
             let ts = toDayTimestamp(start);
             let end_ts = toDayTimestamp(end);
             setProgress(0.0);
+            wattHours = 0.0;
             dlLen = 0;
             while (ts <= end_ts) {
                 dlLen++;
@@ -133,10 +140,11 @@
 
         async function fetchDay(start_ts) {
             let _last_date = 0;
-            if (!daysDownloaded.has(start_ts)) {
-                daysDownloaded.set(start_ts, 1);
+            let locStartTs = start_ts;
+            if (!daysDownloaded.has(locStartTs)) {
                 console.log("Downloading ts: " + start_ts);
                 downloading = true;
+                let wattSecond = 0.0;
                 //it shouldn't be "WHERE c._ts" but "c.id", because c.id is ts when it was measured not sent,
                 //but string comparison costs more RUs so... need to add new filed with ts as integer (TODO)
                 //may make a difference in case of device catching up a day later
@@ -144,12 +152,14 @@
                 console.log(queryStr);
                 let items = await queryDB(queryStr);
                 items.forEach(item => {
-                    console.log(`${item.id} - I: ${item.I}, U: ${item.U}`);
+                    //console.log(`${item.id} - I: ${item.I}, U: ${item.U}`);
 
-                    var date = new Date(item.id * 1000).toLocaleDateString("en-CA");
-                    var time = new Date(item.id * 1000).toLocaleTimeString("pl-PL");
+                    var itemDate = new Date(item.id * 1000);
+                    var date = itemDate.toLocaleDateString("en-CA");
+                    var time = itemDate.toLocaleTimeString("pl-PL");
 
-                    if (item._ts - _last_date > 100)
+                    let dateDiff = item._ts - _last_date;
+                    if (dateDiff > 100)
                         xValues.push("NA");
                     xValues.push(date + " " + time);
 
@@ -157,8 +167,13 @@
                     yUValues.push(item.U);
                     yPValues.push(item.I * item.U);
 
+                    if (dateDiff > 0 && dateDiff < 100) {
+                        wattSecond += (item._ts - _last_date) * item.I * item.U;
+                    }
+
                     _last_date = item._ts;
                 });
+                daysDownloaded.set(locStartTs, wattSecond);
             }
             else {
                 console.log("Ts: " + start_ts + " skipped");
@@ -253,12 +268,13 @@
                     console.log("SELECT c.id, c.U, c.I, c._ts from c WHERE c._ts > " + last_date);
                     let nitems = await queryDB("SELECT c.id, c.U, c.I, c._ts from c WHERE c._ts > " + last_date);
                     if (nitems.length > 0) {
-
+                        let wattSecond = 0.0;
                         nitems.forEach(item => {
                             console.log(`${item.id} - I: ${item.I}, U: ${item.U}`);
 
-                            var date = new Date(item.id * 1000).toLocaleDateString("en-CA");
-                            var time = new Date(item.id * 1000).toLocaleTimeString("pl-PL");
+                            var itemDate = new Date(item.id * 1000);
+                            var date = itemDate.toLocaleDateString("en-CA");
+                            var time = itemDate.toLocaleTimeString("pl-PL");
 
                             if (item._ts - last_date > 100)
                                 xValues.push("NA");
@@ -267,10 +283,15 @@
                             yIValues.push(item.I);
                             yUValues.push(item.U);
                             yPValues.push(item.I * item.U);
-
+                            if (item._ts > last_date) {
+                                wattSecond += (item._ts - last_date) * item.I * item.U;
+                            }
                             last_date = item._ts;
-                        });
-
+                        });/*
+                        let today = toDayTimestamp(moment());
+                        if (daysDownloaded.has(today)) {
+                            daysDownloaded.set(today, daysDownloaded.get(today) + wattSecond / 3600.0);
+                        }*/
                         Plotly.redraw("myPlot");
                     }
                     downloading = false;
@@ -285,12 +306,16 @@
                     let start_ts = 0;
                     do {
                         start_ts = dlQueue.shift();
+                        if (daysDownloaded.has(start_ts)) {
+                            wattHours += daysDownloaded.get(start_ts) / 3600.0;
+                        }
                     } while (daysDownloaded.has(start_ts));
                     if (start_ts > 0) {
                         fetchDay(start_ts).then(() => {
                             console.log("Day downloaded");
                             Plotly.redraw("myPlot");
                             Plotly.relayout("myPlot", layout_update);
+                            wattHours += daysDownloaded.get(start_ts) / 3600.0;
                             setProgress(1.0 - (dlQueue.length / dlLen));
                         });
                     }
