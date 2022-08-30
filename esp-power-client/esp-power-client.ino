@@ -25,8 +25,8 @@
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 //WiFiMulti wifiMulti;
-
-const int chipSelect = 12;
+#define chipSelect 12
+#define RELAY 4
 
 TaskHandle_t Task0;
 
@@ -46,6 +46,15 @@ struct Config {
   int ulv; //u - voltage; lp - low point; v - corresponing value
   int uhr; //u - voltage; hp - high point; r - raw read
   int uhv; //u - voltage; hp - high point; v - corresponing value
+
+  //when read value is in between these values relay output is triggered
+  //interval (including endpoints): [relay_min, relay_max]
+  //relay_min less than or equal to relay_max
+  float u_relay_min;
+  float u_relay_max;
+
+  float i_relay_min;
+  float i_relay_max;
 };
 
 const long  gmtOffset_sec = 3600;
@@ -55,7 +64,6 @@ char timeStringBuff[30];
 char sendBuf[1000];
 
 //char connectionLink[150] = "http://192.168.0.38:7071/api/Log?d=";
-//char connectionLink[150] = "http://power-function.azurewebsites.net/api/Log?code=KAPPSK_xg1Vyv-kH0BBj1UQ2LU5CCImc0U9YH5lfyY3NAzFugcQEFg==&d=";
 
 unsigned long epochTime = 0;
 
@@ -92,7 +100,7 @@ void loadConfiguration() {
           sizeof(config.password));
 
   strlcpy(config.connectionLink,
-          doc["cnURL"] | "",
+          doc["cnURL"] | "http://power-function.azurewebsites.net/api/Log?code=KAPPSK_xg1Vyv-kH0BBj1UQ2LU5CCImc0U9YH5lfyY3NAzFugcQEFg==&d=",
           sizeof(config.connectionLink));
 
   config.ilr = (doc["ilr"] | 924) * 10;
@@ -104,6 +112,12 @@ void loadConfiguration() {
   config.ulv = (doc["ulv"] | 2) * 10;
   config.uhr = (doc["uhr"] | 793) * 10;
   config.uhv = (doc["uhv"] | 64) * 10;
+
+  config.u_relay_min = (doc["u_relay_min"] | 10.0f) * 10;
+  config.u_relay_max = (doc["u_relay_max"] | -10.0f) * 10;
+
+  config.i_relay_min = (doc["i_relay_min"] | 10.0f) * 10;
+  config.i_relay_max = (doc["i_relay_max"] | -10.0f) * 10;
 
   file.close();
 }
@@ -127,8 +141,11 @@ void setup() {
   pinMode (A1, INPUT);
   pinMode (A2, INPUT);
   pinMode (chipSelect, OUTPUT);
+  pinMode (RELAY, OUTPUT);
   //button pin
   pinMode (17, INPUT_PULLUP);
+
+  //relay output
 
   analogSetWidth(11);
 
@@ -153,17 +170,17 @@ void setup() {
   if (offline) {
     printMessage("Offline mode active");
     /*struct tm tm;
-    tm.tm_year = 0;
-    tm.tm_mon = 0;
-    tm.tm_mday = 0;
-    tm.tm_hour = 0;
-    tm.tm_min = 0;
-    tm.tm_sec = 0;*/
+      tm.tm_year = 0;
+      tm.tm_mon = 0;
+      tm.tm_mday = 0;
+      tm.tm_hour = 0;
+      tm.tm_min = 0;
+      tm.tm_sec = 0;*/
     time_t t = 1800000000UL;//mktime(&tm);
     struct timeval now = { .tv_sec = t };
     settimeofday(&now, NULL);
     epochTime = getTimeString(timeStringBuff);
-    printMessage(timeStringBuff);
+    //printMessage(timeStringBuff);
     delay(1000);
   }
   else {
@@ -339,6 +356,17 @@ void loop() {
     Serial.println(f_current * f_voltage);
 
     Log(SD, String(epochTime) + ";" + String(f_current) + ";" + String(f_voltage) + "\n", write_pos);
+
+    //relay control
+    if ((config.u_relay_min <= f_voltage && config.u_relay_max >= f_voltage) ||
+        (config.i_relay_min <= f_current && config.i_relay_max >= f_current)) {
+        digitalWrite(RELAY, HIGH);
+    }
+    else{
+      digitalWrite(RELAY, LOW);
+    }
+
+    //upload to cloud
     if (offline) {
       //printMessage("Offline mode");
     }

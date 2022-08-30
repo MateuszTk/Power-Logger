@@ -93,6 +93,9 @@
         var wattHours = 0.0;
         var dateRangeText = "";
 
+        var last_date = 0;
+        var last_array_date = 0;
+
         var progressBar = document.getElementById("progBar");
         var wattHoursText = document.getElementById("wattHours");
 
@@ -153,14 +156,18 @@
                 let items = await queryDB(queryStr);
                 items.forEach(item => {
                     //console.log(`${item.id} - I: ${item.I}, U: ${item.U}`);
-
-                    var itemDate = new Date(item.id * 1000);
+                    let dateSent = item.id * 1;
+                    var itemDate = new Date(dateSent * 1000);
                     var date = itemDate.toLocaleDateString("en-CA");
                     var time = itemDate.toLocaleTimeString("pl-PL");
 
-                    let dateDiff = item._ts - _last_date;
-                    if (dateDiff > 100)
+                    let dateDiff = dateSent - _last_date;
+                    if (Math.abs(dateDiff) > 100) {
                         xValues.push("NA");
+                        yIValues.push(0);
+                        yUValues.push(0);
+                        yPValues.push(0);
+                    }
                     xValues.push(date + " " + time);
 
                     yIValues.push(item.I);
@@ -168,10 +175,11 @@
                     yPValues.push(item.I * item.U);
 
                     if (dateDiff > 0 && dateDiff < 100) {
-                        wattSecond += (item._ts - _last_date) * item.I * item.U;
+                        wattSecond += (dateSent - _last_date) * item.I * item.U;
                     }
 
-                    _last_date = item._ts;
+                    _last_date = dateSent;
+                    last_array_date = item._ts;
                 });
                 daysDownloaded.set(locStartTs, wattSecond);
             }
@@ -191,29 +199,27 @@
 
         async function main() {
 
-            var last_date = 0;
-
             last_date = Math.floor(Date.now() / 1000);
 
 
             // Define Data
             var data = [
                 {
-                    x: xValues, y: yIValues, type: "scatter", name: "Current [A]",
+                    x: xValues, y: yIValues, name: "Current [A]",
                     marker: {
                         color: 'green'
                     },
                     connectgaps: false
                 },
                 {
-                    x: xValues, y: yUValues, type: "scatter", name: "Voltage [V]",
+                    x: xValues, y: yUValues, name: "Voltage [V]",
                     marker: {
                         color: 'blue'
                     },
                     connectgaps: false
                 },
                 {
-                    x: xValues, y: yPValues, type: "scatter", name: "Power [W]", yaxis: 'y2',
+                    x: xValues, y: yPValues, name: "Power [W]", yaxis: 'y2',
                     marker: {
                         color: 'red'
                     },
@@ -226,6 +232,7 @@
                 yaxis: {
                     fixedrange: true,
                     title: 'Current [A], Voltage [V]',
+                    type: 'linear'
                 },
                 yaxis2: {
                     title: 'Power [W]',
@@ -233,10 +240,12 @@
                     tickfont: { color: 'red' },
                     overlaying: 'y',
                     side: 'right',
-                    fixedrange: true
+                    fixedrange: true,
+                    type: 'linear'
                 },
                 xaxis: {
-                    range: [moment().format('YYYY-MM-DD') + ' 00:00:00', moment().format('YYYY-MM-DD') + ' 23:59:59']
+                    range: [moment().format('YYYY-MM-DD') + ' 00:00:00', moment().format('YYYY-MM-DD') + ' 23:59:59'],
+                    type: 'date'
                 },
                 legend: {
                     "orientation": "h",
@@ -276,8 +285,13 @@
                             var date = itemDate.toLocaleDateString("en-CA");
                             var time = itemDate.toLocaleTimeString("pl-PL");
 
-                            if (item._ts - last_date > 100)
+                            //first condition - for breaks in updates; second condition - for update after switching from day download
+                            if (Math.abs(item._ts - last_date) > 100 || Math.abs(item._ts - last_array_date) > 100) {
                                 xValues.push("NA");
+                                yIValues.push(0);
+                                yUValues.push(0);
+                                yPValues.push(0);
+                            }
                             xValues.push(date + " " + time);
 
                             yIValues.push(item.I);
@@ -287,6 +301,7 @@
                                 wattSecond += (item._ts - last_date) * item.I * item.U;
                             }
                             last_date = item._ts;
+                            last_array_date = item._ts;
                         });/*
                         let today = toDayTimestamp(moment());
                         if (daysDownloaded.has(today)) {
