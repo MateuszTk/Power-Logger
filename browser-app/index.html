@@ -1,6 +1,9 @@
 <!DOCTYPE html>
 <html>
 <head>
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <title>Power Logger</title>
+
     <!-- head definitions go here -->
     <script src="./dist/cosmosb.min.js"></script>
     <script src="./plotly-2.12.1.min.js"></script>
@@ -57,7 +60,6 @@
             line-height: 30px;
             color: white;
         }
-
     </style>
 
 </head>
@@ -158,8 +160,10 @@
                     //console.log(`${item.id} - I: ${item.I}, U: ${item.U}`);
                     let dateSent = item.id * 1;
                     var itemDate = new Date(dateSent * 1000);
-                    var date = itemDate.toLocaleDateString("en-CA");
-                    var time = itemDate.toLocaleTimeString("pl-PL");
+                    //var date = itemDate.toLocaleDateString("en-CA");
+                    //var time = itemDate.toLocaleTimeString("pl-PL");
+                    var date = itemDate.getFullYear() + "-" + ("0" + (itemDate.getMonth() + 1)).slice(-2) + "-" + ("0" + itemDate.getDate()).slice(-2);
+                    var time = ("0" + itemDate.getHours()).slice(-2) + ":" + ("0" + itemDate.getMinutes()).slice(-2) + ":" + ("0" + itemDate.getSeconds()).slice(-2);
 
                     let dateDiff = dateSent - _last_date;
                     if (Math.abs(dateDiff) > 100) {
@@ -168,8 +172,8 @@
                         yUValues.push(0);
                         yPValues.push(0);
                     }
-                    xValues.push(date + " " + time);
 
+                    xValues.push(date + " " + time);
                     yIValues.push(item.I);
                     yUValues.push(item.U);
                     yPValues.push(item.I * item.U);
