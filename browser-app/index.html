@@ -83,6 +83,7 @@
         var yIValues = [];
         var yUValues = [];
         var yPValues = [];
+        var yPValuesAVG = [];
 
         var start = moment();
         var end = moment();
@@ -156,6 +157,9 @@
                 let queryStr = "SELECT c.id, c.U, c.I, c._ts from c WHERE c._ts BETWEEN " + start_ts + " AND " + (start_ts + dayLen);
                 console.log(queryStr);
                 let items = await queryDB(queryStr);
+                let avgSum = 0;
+                let itemCnt = 0;
+                let smoothness = 20;
                 items.forEach(item => {
                     //console.log(`${item.id} - I: ${item.I}, U: ${item.U}`);
                     let dateSent = item.id * 1;
@@ -171,12 +175,23 @@
                         yIValues.push(0);
                         yUValues.push(0);
                         yPValues.push(0);
+                        yPValuesAVG.push(0);
                     }
 
                     xValues.push(date + " " + time);
                     yIValues.push(item.I);
                     yUValues.push(item.U);
                     yPValues.push(item.I * item.U);
+
+                    //calculating average
+                    let lastId = yPValues.length - smoothness - 1;
+                    let last = 0;
+                    itemCnt++;
+                    if (itemCnt > smoothness)
+                        last = yPValues[lastId];
+                    avgSum = avgSum + item.I * item.U - last;
+                    
+                    yPValuesAVG.push(avgSum / smoothness);
 
                     if (dateDiff > 0 && dateDiff < 100) {
                         wattSecond += (dateSent - _last_date) * item.I * item.U;
@@ -226,6 +241,13 @@
                     x: xValues, y: yPValues, name: "Power [W]", yaxis: 'y2',
                     marker: {
                         color: 'red'
+                    },
+                    connectgaps: false
+                },
+                {
+                    x: xValues, y: yPValuesAVG, name: "Power Avg [W]", yaxis: 'y2',
+                    marker: {
+                        color: 'purple'
                     },
                     connectgaps: false
                 }
@@ -295,12 +317,26 @@
                                 yIValues.push(0);
                                 yUValues.push(0);
                                 yPValues.push(0);
+                                yPValuesAVG.push(0);
                             }
                             xValues.push(date + " " + time);
 
                             yIValues.push(item.I);
                             yUValues.push(item.U);
                             yPValues.push(item.I * item.U);
+                            let avg = 0;
+                            let samples = 0;
+                            for (let i = 0; i < 20; i++) {
+                                let ind = yPValues.length - i - 1;
+                                if (ind > 0) {
+                                    if (new Date(xValues[ind]) - itemDate < 1000 * 1000) {
+                                        avg += yPValues[ind];
+                                        samples++;
+                                    }
+                                }
+                            }
+                            yPValuesAVG.push(avg / samples);
+
                             if (item._ts > last_date) {
                                 wattSecond += (item._ts - last_date) * item.I * item.U;
                             }
