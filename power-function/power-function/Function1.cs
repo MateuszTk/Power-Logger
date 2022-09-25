@@ -32,7 +32,9 @@ namespace power_function
             string responseMessage;
 
             const float minValue = -100.0f;
-            float current = minValue;
+            float currentA = minValue;
+            float currentB = minValue;
+            float currentC = minValue;
             float voltage = minValue;
             ulong ts = 0;
 
@@ -48,7 +50,7 @@ namespace power_function
              *      Example:
              *      "t1234i88u44"
              *      *'i' and 'u' can be swapped (not with 't' which always must be first)
-             *  -If one value is missing (example: "t1234iu88" ['i' value is missing]) the entire measurement is discarded
+             *  -If one value is missing (example: "t1234iu88" [value of 'i' is missing]) the entire measurement is discarded
              *  -If more than one measurement is being sent,
              *   strings of two measurements should be added without the use of additional separators
              *      Example: "t1234i88u44t1235i42u69"
@@ -74,11 +76,14 @@ namespace power_function
                 while (start < data_str.Length - 1) {
 
                     //fast forward in case of incomplete data (to deal with cases like: "t1234iu88" - value after 'i' missing)
-                    while (start < data_str.Length - 1 && (data_str[start + 1] < '0' || data_str[start + 1] > '9') && data_str[start + 1] != '-')
+                    while (start < data_str.Length - 1 && (data_str[start + 1] < '0' || data_str[start + 1] > '9') && data_str[start + 1] != '-'
+                        && data_str[start + 1] != 'A' && data_str[start + 1] != 'B' && data_str[start + 1] != 'C')
                     {
                         if (data_str[start] == 't')
                         {
-                            current = minValue;
+                            currentA = minValue;
+                            currentB = minValue;
+                            currentC = minValue;
                             voltage = minValue;
                             ts = 0;
                         }
@@ -87,19 +92,27 @@ namespace power_function
                     if (start >= data_str.Length - 1) break;
 
                     //find the end of the number
-                    end = Next(start + 1);
+                    end = Next(start + (data_str[start] == 'i' ? 2 : 1));
                     
                     switch (data_str[start])
                     {
                         //every read begins with timestamp - 't'
                         case 't':
                             ts = UInt64.Parse(data_str.Substring(start + 1, end - start - 1));
-                            current = minValue;
+                            currentA = minValue;
+                            currentB = minValue;
+                            currentC = minValue;
                             voltage = minValue;
                             break;
 
                         case 'i':
-                            current = float.Parse(data_str.Substring(start + 1, end - start - 1));
+                            start++;
+                            if(data_str[start] == 'A')
+                                currentA = float.Parse(data_str.Substring(start + 1, end - start - 1));
+                            if (data_str[start] == 'B')
+                                currentB = float.Parse(data_str.Substring(start + 1, end - start - 1));
+                            if (data_str[start] == 'C')
+                                currentC = float.Parse(data_str.Substring(start + 1, end - start - 1));
                             break;
 
                         case 'u':
@@ -114,18 +127,22 @@ namespace power_function
                     start = end;
 
                     //if all the variables are read save the measurement
-                    if (ts > 0 && current > minValue && voltage > minValue)
+                    if (ts > 0 && currentA > minValue && currentB > minValue && currentC > minValue && voltage > minValue)
                     {
-                        log.LogInformation("ts=" + ts + " I=" + current + " U=" + voltage);
+                        log.LogInformation("ts=" + ts + " IA=" + currentA + " IB=" + currentB + " IC=" + currentC + " U=" + voltage);
 
                         await documentsOut.AddAsync(new
                         {
                             id = ts.ToString(),
                             U = voltage,
-                            I = current
+                            I = currentA,
+                            IB = currentB,
+                            IC = currentC
                         });
 
-                        current = minValue;
+                        currentA = minValue;
+                        currentB = minValue;
+                        currentC = minValue;
                         voltage = minValue;
                     }                   
                 }

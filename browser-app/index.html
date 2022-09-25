@@ -77,13 +77,21 @@
     </div>
 
     <script type="text/javascript">
-
+        //time
         var xValues = [];
-
+        //current
         var yIValues = [];
+        var yIValuesB = [];
+        var yIValuesC = [];
+        //voltage
         var yUValues = [];
+        //power
         var yPValues = [];
         var yPValuesAVG = [];
+        var yPValuesB = [];
+        var yPValuesAVGB = [];
+        var yPValuesC = [];
+        var yPValuesAVGC = [];
 
         var start = moment();
         var end = moment();
@@ -154,7 +162,7 @@
                 //it shouldn't be "WHERE c._ts" but "c.id", because c.id is ts when it was measured not sent,
                 //but string comparison costs more RUs so... need to add new filed with ts as integer (TODO)
                 //may make a difference in case of device catching up a day later
-                let queryStr = "SELECT c.id, c.U, c.I, c._ts from c WHERE c._ts BETWEEN " + start_ts + " AND " + (start_ts + dayLen);
+                let queryStr = "SELECT c.id, c.U, c.I, c.IB, c.IC, c._ts from c WHERE c._ts BETWEEN " + start_ts + " AND " + (start_ts + dayLen);
                 console.log(queryStr);
                 let items = await queryDB(queryStr);
                 let avgSum = 0;
@@ -173,15 +181,31 @@
                     if (Math.abs(dateDiff) > 100) {
                         xValues.push("NA");
                         yIValues.push(0);
+                        yIValuesB.push(0);
+                        yIValuesC.push(0);
+
                         yUValues.push(0);
+
                         yPValues.push(0);
                         yPValuesAVG.push(0);
+                        yPValuesB.push(0);
+                        yPValuesAVGB.push(0);
+                        yPValuesC.push(0);
+                        yPValuesAVGC.push(0);
                     }
 
+                    let IA = (item.I > 0.1 || item.I < -0.3) ? item.I : 0;
+                    let IB = (item.IB > 0.1 || item.IB < -0.3) ? item.IB : 0;
+                    let IC = (item.IC > 0.1 || item.IC < -0.3) ? item.IC : 0;
+
                     xValues.push(date + " " + time);
-                    yIValues.push(item.I);
+                    yIValues.push(IA);
+                    yIValuesB.push(IB);
+                    yIValuesC.push(IC);
                     yUValues.push(item.U);
-                    yPValues.push(item.I * item.U);
+                    yPValues.push(IA * item.U);
+                    yPValuesB.push(IB * item.U);
+                    yPValuesC.push(IC * item.U);
 
                     //calculating average
                     let lastId = yPValues.length - smoothness - 1;
@@ -189,7 +213,7 @@
                     itemCnt++;
                     if (itemCnt > smoothness)
                         last = yPValues[lastId];
-                    avgSum = avgSum + item.I * item.U - last;
+                    avgSum = avgSum + IA * item.U - last;
                     
                     yPValuesAVG.push(avgSum / smoothness);
 
@@ -224,12 +248,30 @@
             // Define Data
             var data = [
                 {
-                    x: xValues, y: yIValues, name: "Current [A]",
+                    x: xValues, y: yIValues, name: "CurrentA [A]",
                     marker: {
-                        color: 'green'
+                        color: 'rgb(0, 255, 0)'
                     },
-                    connectgaps: false
+                    connectgaps: false,
+                    legendgroup: 'groupI'
                 },
+                {
+                    x: xValues, y: yIValuesB, name: "CurrentB [A]",
+                    marker: {
+                        color: 'rgb(0, 210, 0)'
+                    },
+                    connectgaps: false,
+                    legendgroup: 'groupI'
+                },
+                {
+                    x: xValues, y: yIValuesC, name: "CurrentC [A]",
+                    marker: {
+                        color: 'rgb(0, 140, 0)'
+                    },
+                    connectgaps: false,
+                    legendgroup: 'groupI'
+                },
+
                 {
                     x: xValues, y: yUValues, name: "Voltage [V]",
                     marker: {
@@ -237,19 +279,56 @@
                     },
                     connectgaps: false
                 },
+
                 {
-                    x: xValues, y: yPValues, name: "Power [W]", yaxis: 'y2',
+                    x: xValues, y: yPValues, name: "PowerA [W]", yaxis: 'y2',
                     marker: {
-                        color: 'red'
+                        color: 'rgb(255, 0, 0)'
                     },
-                    connectgaps: false
+                    connectgaps: false,
+                    legendgroup: 'groupP'
                 },
                 {
-                    x: xValues, y: yPValuesAVG, name: "Power Avg [W]", yaxis: 'y2',
+                    x: xValues, y: yPValuesAVG, name: "PowerA Avg [W]", yaxis: 'y2',
                     marker: {
-                        color: 'purple'
+                        color: 'rgb(0, 255, 255)'
                     },
-                    connectgaps: false
+                    connectgaps: false,
+                    legendgroup: 'groupPA'
+                },
+
+                {
+                    x: xValues, y: yPValuesB, name: "PowerB [W]", yaxis: 'y2',
+                    marker: {
+                        color: 'rgb(210, 0, 0)'
+                    },
+                    connectgaps: false,
+                    legendgroup: 'groupP'
+                },
+                {
+                    x: xValues, y: yPValuesAVGB, name: "PowerB Avg [W]", yaxis: 'y2',
+                    marker: {
+                        color: 'rgb(0, 210, 210)'
+                    },
+                    connectgaps: false,
+                    legendgroup: 'groupPA'
+                },
+
+                {
+                    x: xValues, y: yPValuesC, name: "PowerC [W]", yaxis: 'y2',
+                    marker: {
+                        color: 'rgb(140, 0, 0)'
+                    },
+                    connectgaps: false,
+                    legendgroup: 'groupP'
+                },
+                {
+                    x: xValues, y: yPValuesAVGC, name: "PowerC Avg [W]", yaxis: 'y2',
+                    marker: {
+                        color: 'rgb(0, 140, 140)'
+                    },
+                    connectgaps: false,
+                    legendgroup: 'groupPA'
                 }
             ];
 
@@ -275,11 +354,11 @@
                 },
                 legend: {
                     "orientation": "h",
-                    y: 1.1
+                    y: 1.3
 
                 },
                 modebar: {
-
+                    add: 'v1hovermode'
                 }
             };
 
@@ -315,15 +394,32 @@
                             if (Math.abs(item._ts - last_date) > 100 || Math.abs(item._ts - last_array_date) > 100) {
                                 xValues.push("NA");
                                 yIValues.push(0);
+                                yIValuesB.push(0);
+                                yIValuesC.push(0);
+
                                 yUValues.push(0);
+
                                 yPValues.push(0);
                                 yPValuesAVG.push(0);
+                                yPValuesB.push(0);
+                                yPValuesAVGB.push(0);
+                                yPValuesC.push(0);
+                                yPValuesAVGC.push(0);
                             }
-                            xValues.push(date + " " + time);
 
-                            yIValues.push(item.I);
+                            let IA = (item.I > 0.1 || item.I < -0.3) ? item.I : 0;
+                            let IB = (item.IB > 0.1 || item.IB < -0.3) ? item.IB : 0;
+                            let IC = (item.IC > 0.1 || item.IC < -0.3) ? item.IC : 0;
+
+                            xValues.push(date + " " + time);
+                            yIValues.push(IA);
+                            yIValuesB.push(IB);
+                            yIValuesC.push(IC);
                             yUValues.push(item.U);
-                            yPValues.push(item.I * item.U);
+                            yPValues.push(IA * item.U);
+                            yPValuesB.push(IB * item.U);
+                            yPValuesC.push(IC * item.U);
+
                             let avg = 0;
                             let samples = 0;
                             for (let i = 0; i < 20; i++) {
