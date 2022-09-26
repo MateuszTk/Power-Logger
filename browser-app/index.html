@@ -15,7 +15,7 @@
 
     <style>
         .js-plotly-plot .plotly .main-svg {
-            top: -40px;
+            top: -35px;
         }
 
         html, body {
@@ -30,8 +30,10 @@
         /* Portrait */
         @media screen and (orientation:portrait) {
             #myPlot {
-                margin: 0;
-                margin-top: 2%;
+                margin-top: 4%;
+                margin-bottom: 0px;
+                margin-left: 0px;
+                margin-right: 0px;
                 height: 50%;
             }
         }
@@ -165,7 +167,7 @@
                 let queryStr = "SELECT c.id, c.U, c.I, c.IB, c.IC, c._ts from c WHERE c._ts BETWEEN " + start_ts + " AND " + (start_ts + dayLen);
                 console.log(queryStr);
                 let items = await queryDB(queryStr);
-                let avgSum = 0;
+                let avgSumA = 0, avgSumB = 0, avgSumC = 0;
                 let itemCnt = 0;
                 let smoothness = 20;
                 items.forEach(item => {
@@ -209,16 +211,23 @@
 
                     //calculating average
                     let lastId = yPValues.length - smoothness - 1;
-                    let last = 0;
+                    let lastA = 0, lastB = 0, lastC = 0;
                     itemCnt++;
-                    if (itemCnt > smoothness)
-                        last = yPValues[lastId];
-                    avgSum = avgSum + IA * item.U - last;
-                    
-                    yPValuesAVG.push(avgSum / smoothness);
+                    if (itemCnt > smoothness) {
+                        lastA = yPValues[lastId];
+                        lastB = yPValuesB[lastId];
+                        lastC = yPValuesC[lastId];
+                    }
+                    avgSumA = avgSumA + IA * item.U - lastA;
+                    avgSumB = avgSumB + IB * item.U - lastB;
+                    avgSumC = avgSumC + IC * item.U - lastC;
+
+                    yPValuesAVG.push(Math.round(avgSumA / smoothness * 100) / 100);
+                    yPValuesAVGB.push(Math.round(avgSumB / smoothness * 100) / 100);
+                    yPValuesAVGC.push(Math.round(avgSumC / smoothness * 100) / 100);
 
                     if (dateDiff > 0 && dateDiff < 100) {
-                        wattSecond += (dateSent - _last_date) * item.I * item.U;
+                        wattSecond += (dateSent - _last_date) * IA * item.U;
                     }
 
                     _last_date = dateSent;
@@ -365,7 +374,8 @@
             var config = {
                 responsive: true,
                 displayModeBar: true,
-                displaylogo: false
+                displaylogo: false,
+                modeBarButtonsToRemove: ['select2d', 'lasso2d']
             }
 
             // Display using Plotly
@@ -379,8 +389,9 @@
                 //if not downloading rn
                 if (!downloading && dlQueue.length == 0) {
                     downloading = true;
-                    console.log("SELECT c.id, c.U, c.I, c._ts from c WHERE c._ts > " + last_date);
-                    let nitems = await queryDB("SELECT c.id, c.U, c.I, c._ts from c WHERE c._ts > " + last_date);
+                    let query = "SELECT c.id, c.U, c.I, c.IB, c.IC, c._ts from c WHERE c._ts > " + last_date;
+                    console.log(query);
+                    let nitems = await queryDB(query);
                     if (nitems.length > 0) {
                         let wattSecond = 0.0;
                         nitems.forEach(item => {
@@ -420,21 +431,26 @@
                             yPValuesB.push(IB * item.U);
                             yPValuesC.push(IC * item.U);
 
-                            let avg = 0;
+                            let avgA = 0, avgB = 0, avgC = 0;
                             let samples = 0;
                             for (let i = 0; i < 20; i++) {
                                 let ind = yPValues.length - i - 1;
                                 if (ind > 0) {
                                     if (new Date(xValues[ind]) - itemDate < 1000 * 1000) {
-                                        avg += yPValues[ind];
+                                        avgA += yPValues[ind];
+                                        avgB += yPValuesB[ind];
+                                        avgC += yPValuesC[ind];
                                         samples++;
                                     }
                                 }
                             }
-                            yPValuesAVG.push(avg / samples);
+
+                            yPValuesAVG.push(Math.round(avgA / samples * 100) / 100);
+                            yPValuesAVGB.push(Math.round(avgB / samples * 100) / 100);
+                            yPValuesAVGC.push(Math.round(avgC / samples * 100) / 100);
 
                             if (item._ts > last_date) {
-                                wattSecond += (item._ts - last_date) * item.I * item.U;
+                                wattSecond += (item._ts - last_date) * IA * item.U;
                             }
                             last_date = item._ts;
                             last_array_date = item._ts;
